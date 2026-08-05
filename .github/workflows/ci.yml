@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build
+        run: swift build --configuration release --disable-sandbox
+      - name: Test
+        run: swift test --disable-sandbox
+      - name: Hardware-safe self-test
+        run: .build/release/Searoom --self-test
+      - name: Package app
+        run: Scripts/build-app.sh
+      - name: Upload unsigned development build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Searoom-development
+          path: dist/Searoom.app
