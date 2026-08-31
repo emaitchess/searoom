@@ -28,6 +28,7 @@ swift test --disable-sandbox --filter testCollectorReturnsBoundedValues   # sing
 Packaging and asset generation:
 
 ```sh
+Scripts/release.sh                      # signed, notarized, stapled dist/Searoom.zip (add --publish to tag and release)
 Scripts/build-app.sh                    # ad-hoc signed dist/Searoom.app
 swift Scripts/render-icon.swift Brand   # regenerates AppIcon-1024.png, searoom-mark.svg, AppIcon.icns
 npx --yes @google/design.md lint DESIGN.md   # must report zero errors and zero warnings

@@ -5,3 +5,6 @@
 *.xccheckout
 *.moved-aside
 DerivedData/
+
+# Local release configuration; see .env.release.example
+.env.release

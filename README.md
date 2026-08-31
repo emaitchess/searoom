@@ -125,6 +125,15 @@ For Developer ID signing, set `CODE_SIGN_IDENTITY` before running the packaging
 script. `Scripts/notarize.sh` submits an already signed build using a notarytool
 keychain profile.
 
+`Scripts/release.sh` runs the whole sequence in one step, producing a signed,
+notarized, stapled `dist/Searoom.zip` that Gatekeeper accepts without a prompt:
+
+```sh
+cp .env.release.example .env.release   # fill in the identity and profile name
+Scripts/release.sh                     # build and notarize
+Scripts/release.sh --publish           # also tag and create the GitHub release
+```
+
 ## Test
 
 ```sh

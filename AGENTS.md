@@ -267,6 +267,8 @@ plutil -lint dist/Searoom.app/Contents/Info.plist
 
 `Scripts/render-icon.swift` stages the PNG, SVG, and PNG-backed ICNS container before publishing any of them. Preserve that fail-closed behavior so a rendering or container-assembly error cannot leave mismatched brand formats.
 
+`Scripts/release.sh` runs the whole release: preflight, tests, signed build, signature and hardened-runtime verification, notarization, stapling, and a Gatekeeper assessment. It stops before tagging unless `--publish` is passed, because tagging and creating a GitHub release are public actions. It reads `CODE_SIGN_IDENTITY` and `NOTARY_KEYCHAIN_PROFILE` from an untracked `.env.release`; see `.env.release.example`. That file names the keychain profile and must never hold the password itself.
+
 Developer ID signing uses `CODE_SIGN_IDENTITY`; notarization uses a preconfigured notarytool keychain profile via `Scripts/notarize.sh`. Signing, notarization, publishing, changing external login items, and creating releases are external side effects—perform them only when explicitly requested. Never place certificates, keychain profiles, Apple credentials, or notarization secrets in the repository.
 
 Update `CFBundleShortVersionString` and `CFBundleVersion` deliberately for releases. Keep the MIT license, third-party notices, bundled font license, privacy statements, and open-source documentation synchronized with shipped artifacts.
