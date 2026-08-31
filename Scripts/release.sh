@@ -119,11 +119,66 @@ step "Build and notarize the disk image"
 # The app inside is already notarized and stapled, so it stays valid once dragged
 # out. The image is signed and notarized separately so it is also valid offline.
 STAGING_DIR="$(mktemp -d)"
+READWRITE_DMG="$REPOSITORY_ROOT/dist/Searoom-rw.dmg"
+VOLUME="/Volumes/Searoom"
+
 cp -R "$APP_PATH" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
-rm -f "$DMG_PATH"
-hdiutil create -volname "Searoom" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH" >/dev/null
+
+# The background is generated from declared geometry, like the app icon, so the
+# window layout below and the artwork cannot drift apart. Both scales are
+# combined into one multi-representation TIFF so Finder picks the right one on
+# Retina displays.
+mkdir -p "$STAGING_DIR/.background"
+swift "$SCRIPT_DIR/render-dmg-background.swift" "$STAGING_DIR/.background" >/dev/null
+tiffutil -cathidpicheck \
+    "$STAGING_DIR/.background/background.png" \
+    "$STAGING_DIR/.background/background@2x.png" \
+    -out "$STAGING_DIR/.background/background.tiff" >/dev/null
+rm -f "$STAGING_DIR/.background/background.png" "$STAGING_DIR/.background/background@2x.png"
+
+[[ -d "$VOLUME" ]] && hdiutil detach "$VOLUME" -quiet
+rm -f "$READWRITE_DMG" "$DMG_PATH"
+
+# Styling needs a writable image: Finder records the layout in .DS_Store, which
+# is then baked into the compressed image below.
+hdiutil create -volname "Searoom" -srcfolder "$STAGING_DIR" \
+    -fs HFS+ -format UDRW -size 64m -ov "$READWRITE_DMG" >/dev/null
 rm -rf "$STAGING_DIR"
+hdiutil attach "$READWRITE_DMG" -readwrite -noverify -noautoopen >/dev/null
+
+osascript <<'APPLESCRIPT' >/dev/null || fail "Finder could not lay out the disk image. Grant this terminal permission to control Finder in System Settings > Privacy & Security > Automation, then re-run."
+tell application "Finder"
+    tell disk "Searoom"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        -- Matches the generated background exactly; a mismatch tiles the picture.
+        set the bounds of container window to {200, 120, 840, 520}
+        set viewOptions to the icon view options of container window
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 96
+        set text size of viewOptions to 12
+        set background picture of viewOptions to file ".background:background.tiff"
+        set position of item "Searoom.app" of container window to {170, 170}
+        set position of item "Applications" of container window to {470, 170}
+        update without registering applications
+        delay 2
+        close
+    end tell
+end tell
+APPLESCRIPT
+
+sync
+hdiutil detach "$VOLUME" -quiet || hdiutil detach "$VOLUME" -force -quiet
+
+# Compress with diskutil rather than `hdiutil convert`. On macOS 26 hdiutil
+# deprecates convert and it fails with "Resource temporarily unavailable" even
+# with nothing attached; diskutil is the supported replacement.
+diskutil image create from --format UDZO "$READWRITE_DMG" "$DMG_PATH" >/dev/null \
+    || fail "could not compress the disk image" 
+rm -f "$READWRITE_DMG"
 
 codesign --force --sign "$CODE_SIGN_IDENTITY" --timestamp "$DMG_PATH"
 xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_KEYCHAIN_PROFILE" --wait
