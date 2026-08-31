@@ -54,3 +54,20 @@ enum DashboardTrendSampleLocator {
             : lower
     }
 }
+
+enum DashboardTrendMetric: CaseIterable, Hashable, Sendable {
+    case cpu
+    case memory
+    case gpu
+    case thermal
+    case network
+
+    var synchronizedMetrics: [DashboardTrendMetric] {
+        switch self {
+        case .cpu, .memory, .gpu, .thermal:
+            [.cpu, .memory, .gpu, .thermal]
+        case .network:
+            [.network]
+        }
+    }
+}

@@ -85,6 +85,14 @@ final class SearoomTests: XCTestCase {
         XCTAssertEqual(nearest(20), 3)
     }
 
+    func testPrimaryTrendHoverMetricsStaySynchronized() {
+        let primaryMetrics: [DashboardTrendMetric] = [.cpu, .memory, .gpu, .thermal]
+        for metric in primaryMetrics {
+            XCTAssertEqual(metric.synchronizedMetrics, primaryMetrics)
+        }
+        XCTAssertEqual(DashboardTrendMetric.network.synchronizedMetrics, [.network])
+    }
+
     func testPressureThresholds() {
         XCTAssertEqual(PressureLevel.from(utilization: 0.25), .nominal)
         XCTAssertEqual(PressureLevel.from(utilization: 0.70), .elevated)
@@ -252,6 +260,26 @@ final class SearoomTests: XCTestCase {
 
     func testMetricFormatting() {
         XCTAssertEqual(MetricFormat.compactBytes(16 * 1_073_741_824), "16G")
+        XCTAssertEqual(
+            MetricFormat.bytePair(
+                8 * 1_073_741_824,
+                16 * 1_073_741_824,
+                unit: .gigabytes
+            ),
+            "8.0/16GB"
+        )
+        XCTAssertEqual(
+            MetricFormat.bytePair(
+                8 * 1_073_741_824,
+                16 * 1_073_741_824,
+                unit: .megabytes
+            ),
+            "8192/16384MB"
+        )
+        XCTAssertEqual(MetricFormat.temperature(25, unit: .celsius), "25°C")
+        XCTAssertEqual(MetricFormat.temperature(25, unit: .fahrenheit), "77°F")
+        XCTAssertEqual(MetricFormat.rate(1_500, unit: .bytes), "1500 B/s")
+        XCTAssertEqual(MetricFormat.rate(1_500, unit: .kilobytes), "1.5 KB/s")
         XCTAssertEqual(MetricFormat.percent(0.427), "43%")
         XCTAssertEqual(MetricFormat.unboundedPercent(1.25), "125%")
         XCTAssertEqual(MetricFormat.fixedField("8%", columns: 4), "  8%")
@@ -276,6 +304,25 @@ final class SearoomTests: XCTestCase {
             ]),
             "F1 2314 · F2 2500"
         )
+    }
+
+    func testDashboardUnitsCycleIndependently() {
+        var state = DashboardUnitState()
+        XCTAssertEqual(state.byteUnit(for: .memory), .gigabytes)
+        XCTAssertEqual(state.temperatureUnit(for: .temperature), .celsius)
+        XCTAssertEqual(state.rateUnit(for: .network), .adaptive)
+
+        state.cycle(.memory)
+        state.cycle(.temperature)
+        state.cycle(.network)
+        XCTAssertEqual(state.byteUnit(for: .memory), .megabytes)
+        XCTAssertEqual(state.byteUnit(for: .cache), .gigabytes)
+        XCTAssertEqual(state.temperatureUnit(for: .temperature), .fahrenheit)
+        XCTAssertEqual(state.rateUnit(for: .network), .bytes)
+        XCTAssertEqual(state.rateUnit(for: .diskIO), .adaptive)
+
+        state.cycle(.memory)
+        XCTAssertEqual(state.byteUnit(for: .memory), .gigabytes)
     }
 
     func testOlderSampleReceivesDefaultsForNewMetrics() throws {

@@ -221,11 +221,11 @@ Combines a plain-language state—All Clear, Busy, Constrained, Critical, or Che
 
 ### Metric card
 
-Shows one current reading, a concise qualifier, and a local trend. Missing values display `N/A` and a reason where space permits. Cards do not poll or own data; they render the shared sampled state.
+Shows one current reading, a concise qualifier, and a local trend. Missing values display `N/A` and a reason where space permits. Clicking a convertible byte, temperature, or throughput reading rotates only that reading's units; paired directions rotate together. Unit selection is presentation state and must not reinterpret stored samples or trigger collection. Cards do not poll or own data; they render the shared sampled state.
 
 ### Trend graph
 
-Uses a single thin semantic stroke over a faint ordered-dither field. Percentage series retain a fixed zero-to-one scale, temperature uses the documented operating range, and paired network series share the recent maximum. Hover snaps to the nearest locally stored sample and shows its exact value and timestamp with a one-pixel crosshair; it must not interpolate or trigger new collection. The dashboard accessibility summary communicates current primary values without reading visual padding used by menu-bar fields.
+Uses a single thin semantic stroke over a faint ordered-dither field. Percentage series retain a fixed zero-to-one scale, temperature uses the documented operating range, and paired network series share the recent maximum. Hovering any of the four primary trends snaps all four crosshairs and value tooltips to the same nearest locally stored sample; the network trend retains its own hover. Hover must show exact values and timestamps, never interpolate, and never trigger new collection. The dashboard accessibility summary communicates current primary values without reading visual padding used by menu-bar fields.
 
 ### Pressure indicator
 

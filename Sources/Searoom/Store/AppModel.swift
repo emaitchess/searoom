@@ -10,6 +10,7 @@ final class AppModel {
     private(set) var currentSample = SystemSample.placeholder
     private(set) var history = RingBuffer<SystemSample>()
     private(set) var settings: AppSettings
+    private(set) var dashboardUnitState = DashboardUnitState()
 
     private let persistence = HistoryPersistence()
     private let defaultsKey = "Searoom.Settings.v1"
@@ -49,6 +50,10 @@ final class AppModel {
         pruneHistory()
         NotificationCenter.default.post(name: .searoomSettingsUpdated, object: self)
         NotificationCenter.default.post(name: .searoomSampleUpdated, object: self)
+    }
+
+    func cycleDashboardUnit(_ target: DashboardUnitTarget) {
+        dashboardUnitState.cycle(target)
     }
 
     func flushHistory() {

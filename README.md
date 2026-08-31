@@ -61,7 +61,9 @@ The dashboard footer provides equal-width shortcuts to Settings, the system
 Activity Monitor, and Quit.
 Searoom's own CPU, RAM and sample cadence appear in one compact final telemetry
 line immediately above that footer. The dashboard scrolls vertically without
-visible scrollbars and suppresses horizontal movement entirely.
+visible scrollbars and suppresses horizontal movement entirely. Clicking a
+byte, temperature, or throughput metric rotates its display units; paired
+network, disk, and swap-throughput readings rotate together.
 
 ## Design
 

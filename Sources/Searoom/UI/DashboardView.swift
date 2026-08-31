@@ -11,10 +11,11 @@ final class DashboardView: NSView {
     private var activityMonitorRect = NSRect.zero
     private var quitRect = NSRect.zero
     private var graphRegions: [GraphRegion] = []
+    private var unitRegions: [UnitRegion] = []
     private var graphCache: GraphCache?
     private var hoverState: HoverState?
     private var hoverTrackingArea: NSTrackingArea?
-    private let hoverOverlay = GraphHoverOverlayView()
+    private var hoverOverlays: [DashboardTrendMetric: GraphHoverOverlayView] = [:]
     private let refreshClock = ContinuousClock()
     private var trendRefreshPolicy = DashboardTrendRefreshPolicy()
     private var livePresentation: LivePresentation?
@@ -28,7 +29,11 @@ final class DashboardView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Searoom system dashboard")
-        addSubview(hoverOverlay)
+        for metric in DashboardTrendMetric.allCases {
+            let overlay = GraphHoverOverlayView()
+            addSubview(overlay)
+            hoverOverlays[metric] = overlay
+        }
     }
 
     @available(*, unavailable)
@@ -56,7 +61,7 @@ final class DashboardView: NSView {
 
     func prepareForClose() {
         hoverState = nil
-        hoverOverlay.hide()
+        hoverOverlays.values.forEach { $0.hide() }
         graphCache = nil
         livePresentation = nil
         trendRefreshPolicy.reset()
@@ -108,6 +113,14 @@ final class DashboardView: NSView {
             GraphRegion(metric: .thermal, rect: graphRect(for: thermalRect)),
             GraphRegion(metric: .network, rect: networkGraphRect(for: networkRect))
         ]
+        unitRegions = makeUnitRegions(
+            memoryRect: memoryRect,
+            thermalRect: thermalRect,
+            networkRect: networkRect,
+            extrasRect: extrasRect,
+            selfRect: selfRect,
+            sample: sample
+        )
         let needsGraphs = graphRegions.contains { needsToDraw($0.rect) }
         let graphs = needsGraphs
             ? cachedGraphs(
@@ -130,8 +143,13 @@ final class DashboardView: NSView {
         if needsToDraw(memoryRect) { drawMetricCard(
             rect: memoryRect,
             title: "MEMORY",
-            value: "\(MetricFormat.compactBytes(sample.memoryUsed))/\(MetricFormat.compactBytes(sample.memoryTotal))",
-            detail: "FREE \(MetricFormat.compactBytes(sample.memoryAvailable)) · SWAP \(MetricFormat.compactBytes(sample.swapUsed))",
+            value: MetricFormat.bytePair(
+                sample.memoryUsed,
+                sample.memoryTotal,
+                unit: model.dashboardUnitState.byteUnit(for: .memory)
+            ),
+            detail: "FREE \(MetricFormat.compactBytes(sample.memoryAvailable, unit: model.dashboardUnitState.byteUnit(for: .memory)))"
+                + " · SWAP \(MetricFormat.compactBytes(sample.swapUsed, unit: model.dashboardUnitState.byteUnit(for: .memory)))",
             pressure: sample.memoryPressureLevel,
             values: graphs?.memory ?? [],
             drawsGraph: needsToDraw(graphRect(for: memoryRect)),
@@ -151,7 +169,10 @@ final class DashboardView: NSView {
         if needsToDraw(thermalRect) { drawMetricCard(
             rect: thermalRect,
             title: "THERMAL",
-            value: MetricFormat.temperature(sample.temperatureCelsius),
+            value: MetricFormat.temperature(
+                sample.temperatureCelsius,
+                unit: model.dashboardUnitState.temperatureUnit(for: .temperature)
+            ),
             detail: sample.fans.isEmpty
                 ? "\(sample.temperatureSource.label) · FAN N/A"
                 : "\(sample.temperatureSource.label) · "
@@ -191,7 +212,7 @@ final class DashboardView: NSView {
             theme: theme
         ) }
         if needsToDraw(footerRect) { drawFooter(y: 867, theme: theme) }
-        if needsGraphs { updateHoverOverlay() }
+        if needsGraphs { updateHoverOverlays() }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -199,27 +220,41 @@ final class DashboardView: NSView {
         if settingsRect.contains(point) { onOpenSettings?() }
         else if activityMonitorRect.contains(point) { onOpenActivityMonitor?() }
         else if quitRect.contains(point) { onQuit?() }
+        else if let region = unitRegions.first(where: { $0.hitRect.contains(point) }) {
+            model.cycleDashboardUnit(region.target)
+            livePresentation = makeLivePresentation()
+            invalidateVisible(region.displayRect)
+            updateHoverOverlays()
+            updateAccessibilitySummary()
+            setAccessibilityHelp(
+                "\(region.target.accessibilityName.capitalized) display unit: "
+                    + "\(model.dashboardUnitState.unitLabel(for: region.target))."
+            )
+        }
         else { super.mouseDown(with: event) }
     }
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let region = graphRegions.first(where: { $0.rect.contains(point) }),
-              !model.history.isEmpty else {
-            clearHover()
+        if let region = graphRegions.first(where: { $0.rect.contains(point) }),
+           !model.history.isEmpty {
+            let fraction = min(1, max(0, (point.x - region.rect.minX) / max(1, region.rect.width)))
+            let index = hoverSampleIndex(at: fraction)
+            let nextState = HoverState(
+                metric: region.metric,
+                sampleTimestamp: model.history[index].timestamp
+            )
+            NSCursor.crosshair.set()
+            guard nextState != hoverState else { return }
+            hoverState = nextState
+            updateHoverOverlays()
             return
         }
 
-        let fraction = min(1, max(0, (point.x - region.rect.minX) / max(1, region.rect.width)))
-        let index = hoverSampleIndex(at: fraction)
-        let nextState = HoverState(
-            metric: region.metric,
-            sampleTimestamp: model.history[index].timestamp
-        )
-        NSCursor.crosshair.set()
-        guard nextState != hoverState else { return }
-        hoverState = nextState
-        updateHoverOverlay()
+        clearHover()
+        if unitRegions.contains(where: { $0.hitRect.contains(point) }) {
+            NSCursor.pointingHand.set()
+        }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -320,15 +355,16 @@ final class DashboardView: NSView {
         theme: SearoomTheme
     ) {
         drawCardFrame(rect, theme: theme)
+        let rateUnit = model.dashboardUnitState.rateUnit(for: .network)
         drawText("NETWORK I/O", at: NSPoint(x: rect.minX + 10, y: rect.minY + 10), font: SearoomFont.metric(10), color: theme.subdued)
         drawText(
-            "↓ \(MetricFormat.rate(sample.networkDownloadPerSecond))",
+            "↓ \(MetricFormat.rate(sample.networkDownloadPerSecond, unit: rateUnit))",
             at: NSPoint(x: rect.minX + 10, y: rect.minY + 32),
             font: SearoomFont.metric(15),
             color: theme.cool
         )
         drawText(
-            "↑ \(MetricFormat.rate(sample.networkUploadPerSecond))",
+            "↑ \(MetricFormat.rate(sample.networkUploadPerSecond, unit: rateUnit))",
             at: NSPoint(x: rect.midX + 8, y: rect.minY + 32),
             font: SearoomFont.metric(15),
             color: theme.ink
@@ -382,7 +418,7 @@ final class DashboardView: NSView {
         let stripe = NSBezierPath(rect: NSRect(x: rect.minX, y: rect.minY, width: 5, height: rect.height))
         DitherPattern.fill(stripe, color: theme.nominal, density: 0.5)
         let summary = "SEAROOM · CPU \(MetricFormat.unboundedPercent(sample.processCPUUsage))"
-            + " · RAM \(MetricFormat.compactBytes(sample.processMemoryBytes))"
+            + " · RAM \(MetricFormat.compactBytes(sample.processMemoryBytes, unit: model.dashboardUnitState.byteUnit(for: .processMemory)))"
             + " · SAMPLE \(String(format: "%.0f", model.settings.sampleInterval))S"
         drawText(
             summary,
@@ -402,10 +438,29 @@ final class DashboardView: NSView {
         default: "N/A"
         }
         let power = "\(powerSource) · LPM \(sample.isLowPowerModeEnabled ? "ON" : "OFF")"
+        let diskUnit = model.dashboardUnitState.rateUnit(for: .diskIO)
+        let cacheUnit = model.dashboardUnitState.byteUnit(for: .cache)
+        let swapUnit = model.dashboardUnitState.byteUnit(for: .swap)
+        let swapIOUnit = model.dashboardUnitState.rateUnit(for: .swapIO)
         let rows = [
-            ("DISK READ", MetricFormat.rate(sample.diskReadPerSecond), "DISK WRITE", MetricFormat.rate(sample.diskWritePerSecond)),
-            ("CACHE", MetricFormat.bytes(sample.memoryCached), "SWAP", MetricFormat.bytes(sample.swapUsed)),
-            ("SWAP IN", MetricFormat.rate(sample.swapInPerSecond), "SWAP OUT", MetricFormat.rate(sample.swapOutPerSecond)),
+            (
+                "DISK READ",
+                MetricFormat.rate(sample.diskReadPerSecond, unit: diskUnit),
+                "DISK WRITE",
+                MetricFormat.rate(sample.diskWritePerSecond, unit: diskUnit)
+            ),
+            (
+                "CACHE",
+                MetricFormat.bytes(sample.memoryCached, unit: cacheUnit),
+                "SWAP",
+                MetricFormat.bytes(sample.swapUsed, unit: swapUnit)
+            ),
+            (
+                "SWAP IN",
+                MetricFormat.rate(sample.swapInPerSecond, unit: swapIOUnit),
+                "SWAP OUT",
+                MetricFormat.rate(sample.swapOutPerSecond, unit: swapIOUnit)
+            ),
             ("PROCESSES", "\(sample.processCount)", "POWER", power)
         ]
         for (index, row) in rows.enumerated() {
@@ -505,11 +560,10 @@ final class DashboardView: NSView {
         }
     }
 
-    private func updateHoverOverlay() {
+    private func updateHoverOverlays() {
         guard let hoverState,
-              !model.history.isEmpty,
-              let region = graphRegions.first(where: { $0.metric == hoverState.metric }) else {
-            hoverOverlay.hide()
+              !model.history.isEmpty else {
+            hoverOverlays.values.forEach { $0.hide() }
             return
         }
 
@@ -525,26 +579,46 @@ final class DashboardView: NSView {
             let denominator = CGFloat(max(1, model.history.count - 1))
             fraction = CGFloat(sampleIndex) / denominator
         }
-        let label = hoverLabel(metric: hoverState.metric, sample: sample)
-        hoverOverlay.show(
-            in: region.rect,
-            x: min(1, max(0, fraction)) * region.rect.width,
-            label: label
-        )
+        let visibleMetrics = hoverState.metric.synchronizedMetrics
+        for metric in DashboardTrendMetric.allCases {
+            guard visibleMetrics.contains(metric),
+                  let region = graphRegions.first(where: { $0.metric == metric }),
+                  let overlay = hoverOverlays[metric] else {
+                hoverOverlays[metric]?.hide()
+                continue
+            }
+            overlay.show(
+                in: region.rect,
+                x: min(1, max(0, fraction)) * region.rect.width,
+                label: hoverLabel(metric: metric, sample: sample)
+            )
+        }
     }
 
-    private func hoverLabel(metric: HoverMetric, sample: SystemSample) -> String {
+    private func hoverLabel(metric: DashboardTrendMetric, sample: SystemSample) -> String {
+        let memory = MetricFormat.bytePair(
+            sample.memoryUsed,
+            sample.memoryTotal,
+            unit: model.dashboardUnitState.byteUnit(for: .memory)
+        )
+        let temperature = MetricFormat.temperature(
+            sample.temperatureCelsius,
+            unit: model.dashboardUnitState.temperatureUnit(for: .temperature)
+        )
+        let networkUnit = model.dashboardUnitState.rateUnit(for: .network)
+        let download = MetricFormat.rate(sample.networkDownloadPerSecond, unit: networkUnit)
+        let upload = MetricFormat.rate(sample.networkUploadPerSecond, unit: networkUnit)
         let value: String = switch metric {
         case .cpu:
             "CPU \(MetricFormat.percent(sample.cpuUsage))"
         case .memory:
-            "RAM \(MetricFormat.compactBytes(sample.memoryUsed))/\(MetricFormat.compactBytes(sample.memoryTotal))"
+            "RAM \(memory)"
         case .gpu:
             "GPU \(sample.gpuUsage.map(MetricFormat.percent) ?? "N/A")"
         case .thermal:
-            "\(sample.temperatureSource.compactLabel) \(MetricFormat.temperature(sample.temperatureCelsius))"
+            "\(sample.temperatureSource.compactLabel) \(temperature)"
         case .network:
-            "↓ \(MetricFormat.rate(sample.networkDownloadPerSecond)) · ↑ \(MetricFormat.rate(sample.networkUploadPerSecond))"
+            "↓ \(download) · ↑ \(upload)"
         }
         return "\(value) · \(Self.hoverTimeFormatter.string(from: sample.timestamp))"
     }
@@ -553,7 +627,7 @@ final class DashboardView: NSView {
         NSCursor.arrow.set()
         guard hoverState != nil else { return }
         self.hoverState = nil
-        hoverOverlay.hide()
+        hoverOverlays.values.forEach { $0.hide() }
     }
 
     private func hoverSampleIndex(at fraction: CGFloat) -> Int {
@@ -578,6 +652,14 @@ final class DashboardView: NSView {
 
     private func makeLivePresentation() -> LivePresentation {
         let sample = model.currentSample
+        let memoryUnit = model.dashboardUnitState.byteUnit(for: .memory)
+        let temperatureUnit = model.dashboardUnitState.temperatureUnit(for: .temperature)
+        let networkUnit = model.dashboardUnitState.rateUnit(for: .network)
+        let diskUnit = model.dashboardUnitState.rateUnit(for: .diskIO)
+        let cacheUnit = model.dashboardUnitState.byteUnit(for: .cache)
+        let swapUnit = model.dashboardUnitState.byteUnit(for: .swap)
+        let swapIOUnit = model.dashboardUnitState.rateUnit(for: .swapIO)
+        let processMemoryUnit = model.dashboardUnitState.byteUnit(for: .processMemory)
         let fanText = MetricFormat.fanActivity(sample.fans)
         let thermalDetail = sample.fans.isEmpty
             ? "\(sample.temperatureSource.label) · FAN N/A"
@@ -589,13 +671,25 @@ final class DashboardView: NSView {
         return LivePresentation(
             header: sample.overallPressureLevel,
             cpu: "\(MetricFormat.percent(sample.cpuUsage))-\(sample.loadAverage1m)-\(sample.logicalCPUCount)-\(sample.cpuPressureLevel.rawValue)",
-            memory: "\(sample.memoryUsed)-\(sample.memoryTotal)-\(sample.memoryAvailable)-\(sample.swapUsed)-\(sample.memoryPressureLevel.rawValue)",
+            memory: "\(MetricFormat.bytePair(sample.memoryUsed, sample.memoryTotal, unit: memoryUnit))"
+                + "-\(MetricFormat.compactBytes(sample.memoryAvailable, unit: memoryUnit))"
+                + "-\(MetricFormat.compactBytes(sample.swapUsed, unit: memoryUnit))"
+                + "-\(sample.memoryPressureLevel.rawValue)",
             gpu: "\(sample.gpuUsage.map(MetricFormat.percent) ?? "N/A")-\(sample.gpuPressureLevel.rawValue)",
-            thermal: "\(MetricFormat.temperature(sample.temperatureCelsius))-\(thermalDetail)-\(sample.thermalPressureLevel.rawValue)",
-            network: "\(MetricFormat.rate(sample.networkDownloadPerSecond))-\(MetricFormat.rate(sample.networkUploadPerSecond))",
+            thermal: "\(MetricFormat.temperature(sample.temperatureCelsius, unit: temperatureUnit))-\(thermalDetail)-\(sample.thermalPressureLevel.rawValue)",
+            network: "\(MetricFormat.rate(sample.networkDownloadPerSecond, unit: networkUnit))"
+                + "-\(MetricFormat.rate(sample.networkUploadPerSecond, unit: networkUnit))",
             info: "\(fanText)-\(MetricFormat.uptime(sample.uptime))",
-            extras: "\(sample.diskReadPerSecond)-\(sample.diskWritePerSecond)-\(sample.memoryCached)-\(sample.swapUsed)-\(sample.swapInPerSecond)-\(sample.swapOutPerSecond)-\(sample.processCount)-\(power)",
-            ownProcess: "\(MetricFormat.unboundedPercent(sample.processCPUUsage))-\(MetricFormat.compactBytes(sample.processMemoryBytes))-\(model.settings.sampleInterval)",
+            extras: "\(MetricFormat.rate(sample.diskReadPerSecond, unit: diskUnit))"
+                + "-\(MetricFormat.rate(sample.diskWritePerSecond, unit: diskUnit))"
+                + "-\(MetricFormat.bytes(sample.memoryCached, unit: cacheUnit))"
+                + "-\(MetricFormat.bytes(sample.swapUsed, unit: swapUnit))"
+                + "-\(MetricFormat.rate(sample.swapInPerSecond, unit: swapIOUnit))"
+                + "-\(MetricFormat.rate(sample.swapOutPerSecond, unit: swapIOUnit))"
+                + "-\(sample.processCount)-\(power)",
+            ownProcess: "\(MetricFormat.unboundedPercent(sample.processCPUUsage))"
+                + "-\(MetricFormat.compactBytes(sample.processMemoryBytes, unit: processMemoryUnit))"
+                + "-\(model.settings.sampleInterval)",
             pressures: [
                 sample.cpuPressureLevel,
                 sample.memoryPressureLevel,
@@ -691,6 +785,107 @@ final class DashboardView: NSView {
             width: cardRect.width - 20,
             height: 48
         )
+    }
+
+    private func makeUnitRegions(
+        memoryRect: NSRect,
+        thermalRect: NSRect,
+        networkRect: NSRect,
+        extrasRect: NSRect,
+        selfRect: NSRect,
+        sample: SystemSample
+    ) -> [UnitRegion] {
+        let extrasWidth = extrasRect.width - 4
+        let diskRect = NSRect(
+            x: extrasRect.minX + 2,
+            y: extrasRect.minY + 28,
+            width: extrasWidth,
+            height: 26
+        )
+        let byteRowRect = NSRect(
+            x: extrasRect.minX + 2,
+            y: extrasRect.minY + 55,
+            width: extrasWidth,
+            height: 26
+        )
+        let swapIORect = NSRect(
+            x: extrasRect.minX + 2,
+            y: extrasRect.minY + 82,
+            width: extrasWidth,
+            height: 26
+        )
+        let selfFont = SearoomFont.metric(10.5)
+        let selfPrefix = "SEAROOM · CPU \(MetricFormat.unboundedPercent(sample.processCPUUsage)) · "
+        let processMemoryValue = MetricFormat.compactBytes(
+            sample.processMemoryBytes,
+            unit: model.dashboardUnitState.byteUnit(for: .processMemory)
+        )
+        let processMemory = "RAM \(processMemoryValue)"
+        let processMemoryRect = NSRect(
+            x: selfRect.minX + 14 + textSize(selfPrefix, font: selfFont).width,
+            y: selfRect.minY + 7,
+            width: textSize(processMemory, font: selfFont).width,
+            height: 28
+        )
+        return [
+            UnitRegion(
+                target: .memory,
+                hitRect: memoryRect,
+                displayRect: liveMetricRect(for: memoryRect)
+            ),
+            UnitRegion(
+                target: .temperature,
+                hitRect: thermalRect,
+                displayRect: liveMetricRect(for: thermalRect)
+            ),
+            UnitRegion(
+                target: .network,
+                hitRect: networkRect,
+                displayRect: NSRect(
+                    x: networkRect.minX + 2,
+                    y: networkRect.minY + 5,
+                    width: networkRect.width - 4,
+                    height: 54
+                )
+            ),
+            UnitRegion(target: .diskIO, hitRect: diskRect, displayRect: diskRect),
+            UnitRegion(
+                target: .cache,
+                hitRect: NSRect(
+                    x: byteRowRect.minX,
+                    y: byteRowRect.minY,
+                    width: byteRowRect.width / 2,
+                    height: byteRowRect.height
+                ),
+                displayRect: NSRect(
+                    x: byteRowRect.minX,
+                    y: byteRowRect.minY,
+                    width: byteRowRect.width / 2,
+                    height: byteRowRect.height
+                )
+            ),
+            UnitRegion(
+                target: .swap,
+                hitRect: NSRect(
+                    x: byteRowRect.midX,
+                    y: byteRowRect.minY,
+                    width: byteRowRect.width / 2,
+                    height: byteRowRect.height
+                ),
+                displayRect: NSRect(
+                    x: byteRowRect.midX,
+                    y: byteRowRect.minY,
+                    width: byteRowRect.width / 2,
+                    height: byteRowRect.height
+                )
+            ),
+            UnitRegion(target: .swapIO, hitRect: swapIORect, displayRect: swapIORect),
+            UnitRegion(
+                target: .processMemory,
+                hitRect: processMemoryRect,
+                displayRect: selfRect
+            )
+        ]
     }
 
     private func cachedGraphs(cardLimit: Int, networkLimit: Int) -> GraphCache {
@@ -794,12 +989,22 @@ final class DashboardView: NSView {
 
     private func updateAccessibilitySummary() {
         let sample = model.currentSample
+        let memory = MetricFormat.bytes(
+            sample.memoryUsed,
+            unit: model.dashboardUnitState.byteUnit(for: .memory)
+        )
+        let temperature = MetricFormat.temperature(
+            sample.temperatureCelsius,
+            unit: model.dashboardUnitState.temperatureUnit(for: .temperature)
+        )
         setAccessibilityValue(
             "System \(sample.overallPressureLevel.systemLabel). "
                 + "CPU \(MetricFormat.percent(sample.cpuUsage)). "
-                + "Memory \(MetricFormat.bytes(sample.memoryUsed)) used of \(MetricFormat.bytes(sample.memoryTotal)). "
-                + "Temperature \(MetricFormat.temperature(sample.temperatureCelsius)). "
-                + "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and \(MetricFormat.bytes(sample.processMemoryBytes)) memory."
+                + "Memory \(memory) used. "
+                + "Temperature \(temperature). "
+                + "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
+                + "\(MetricFormat.bytes(sample.processMemoryBytes, unit: model.dashboardUnitState.byteUnit(for: .processMemory))) memory. "
+                + "Click a unit-bearing metric to change its display unit."
         )
     }
 
@@ -831,21 +1036,19 @@ final class DashboardView: NSView {
         case temperature
     }
 
-    private enum HoverMetric: Equatable {
-        case cpu
-        case memory
-        case gpu
-        case thermal
-        case network
-    }
-
     private struct GraphRegion {
-        let metric: HoverMetric
+        let metric: DashboardTrendMetric
         let rect: NSRect
     }
 
+    private struct UnitRegion {
+        let target: DashboardUnitTarget
+        let hitRect: NSRect
+        let displayRect: NSRect
+    }
+
     private struct HoverState: Equatable {
-        let metric: HoverMetric
+        let metric: DashboardTrendMetric
         let sampleTimestamp: Date
     }
 

@@ -11,6 +11,22 @@ enum SelfTest {
         check(PressureLevel.constrained.compactLabel == "TIGHT", "compact pressure label")
         check(MetricFormat.percent(0.427) == "43%", "percent formatting")
         check(MetricFormat.unboundedPercent(1.25) == "125%", "process percent formatting")
+        check(
+            MetricFormat.bytePair(
+                8 * 1_073_741_824,
+                16 * 1_073_741_824,
+                unit: .megabytes
+            ) == "8192/16384MB",
+            "selectable byte unit formatting"
+        )
+        check(
+            MetricFormat.temperature(25, unit: .fahrenheit) == "77°F",
+            "selectable temperature unit formatting"
+        )
+        check(
+            MetricFormat.rate(1_500, unit: .kilobytes) == "1.5 KB/s",
+            "selectable rate unit formatting"
+        )
         check(MetricFormat.fixedField("8%", columns: 4) == "  8%", "fixed metric field")
         check(MetricFormat.fixedLabel("BAT", columns: 4) == "BAT ", "fixed metric label")
         check(MetricFormat.uptime(90_061) == "01D 01H", "uptime formatting")
@@ -73,6 +89,26 @@ enum SelfTest {
             timestampAt: { trendDates[$0] }
         )
         check(nearestTrendIndex == 1, "trend hover sample alignment")
+        let primaryTrendMetrics: [DashboardTrendMetric] = [.cpu, .memory, .gpu, .thermal]
+        check(
+            primaryTrendMetrics.allSatisfy { $0.synchronizedMetrics == primaryTrendMetrics },
+            "primary trend hover synchronization"
+        )
+        check(
+            DashboardTrendMetric.network.synchronizedMetrics == [.network],
+            "network trend hover isolation"
+        )
+        var dashboardUnits = DashboardUnitState()
+        dashboardUnits.cycle(.memory)
+        dashboardUnits.cycle(.temperature)
+        dashboardUnits.cycle(.network)
+        check(dashboardUnits.byteUnit(for: .memory) == .megabytes, "memory unit rotation")
+        check(
+            dashboardUnits.temperatureUnit(for: .temperature) == .fahrenheit,
+            "temperature unit rotation"
+        )
+        check(dashboardUnits.rateUnit(for: .network) == .bytes, "rate unit rotation")
+        check(dashboardUnits.rateUnit(for: .diskIO) == .adaptive, "independent unit rotation")
         if let encodedSample = try? JSONEncoder().encode(SystemSample.placeholder),
            var legacySample = try? JSONSerialization.jsonObject(with: encodedSample) as? [String: Any] {
             legacySample.removeValue(forKey: "swapInPerSecond")
