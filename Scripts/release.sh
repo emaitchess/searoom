@@ -121,16 +121,33 @@ if [[ "$PUBLISH" != 1 ]]; then
 fi
 
 step "Publish $TAG"
+PREVIOUS_TAG="$(git describe --tags --abbrev=0 "HEAD" 2>/dev/null || true)"
+
 git tag -a "$TAG" -m "Searoom $VERSION"
 git push origin "$TAG"
-gh release create "$TAG" "$ARCHIVE_PATH" \
-    --title "Searoom $VERSION" \
-    --generate-notes \
-    --notes-start-tag "$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || echo "$TAG")" \
-    --notes "Requires macOS 14 or later on Apple silicon. Signed with a Developer ID certificate and notarized by Apple, so it opens without a Gatekeeper prompt.
+
+NOTES="Requires macOS 14 or later on Apple silicon. Signed with a Developer ID certificate and notarized by Apple, so it opens with a normal double-click rather than a Gatekeeper prompt.
+
+Searoom has no updater and no network client, so new versions are announced here only. Watch the repository's releases to hear about them.
 
 \`Searoom.zip\` SHA-256:
 
     $CHECKSUM"
+
+# Generated notes need an earlier tag to diff against. On the first release
+# there is none, and generating from the repository root would list every commit
+# ever made, so the explicit notes stand alone.
+if [[ -n "$PREVIOUS_TAG" ]]; then
+    gh release create "$TAG" "$ARCHIVE_PATH" \
+        --title "Searoom $VERSION" \
+        --generate-notes --notes-start-tag "$PREVIOUS_TAG" \
+        --notes "$NOTES" \
+        || fail "tag $TAG was pushed but the release failed. Re-run: gh release create $TAG $ARCHIVE_PATH ..."
+else
+    gh release create "$TAG" "$ARCHIVE_PATH" \
+        --title "Searoom $VERSION" \
+        --notes "$NOTES" \
+        || fail "tag $TAG was pushed but the release failed. Delete it with: git push --delete origin $TAG && git tag -d $TAG"
+fi
 
 echo "Published: $(gh release view "$TAG" --json url -q .url)"
