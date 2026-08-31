@@ -2,7 +2,7 @@
 
 This file applies to the entire repository. It records the constraints that are easy to miss when changing a small native menu-bar app. Read `README.md` for product behavior, `DESIGN.md` for the visual system, and `CONTRIBUTING.md` for the public contribution policy before making broad changes.
 
-The canonical project website is `https://searoom.app`, the public repository is
+The canonical project website is `https://searoom.app`, the repository is
 `https://github.com/emaitchess/searoom`, and the permanent application bundle
 identifier is `app.searoom.Searoom`.
 
@@ -36,17 +36,19 @@ Preserve these non-negotiable properties:
 | `Sources/Searoom/Resources` | Bundled runtime assets, including Departure Mono |
 | `Tests/SearoomTests` | XCTest coverage for pure behavior and hardware-safe collector bounds |
 | `Support/Info.plist` | Bundle identity, version, minimum OS, and `LSUIElement` behavior |
-| `Scripts` | Foreground development launch, app packaging, notarization, and brand asset generation |
+| `.env.release.example` | Template for the untracked `.env.release` read by `Scripts/release.sh`; names the signing identity and keychain profile, never a secret |
+| `Scripts` | Foreground development launch, app packaging, notarization, release automation, and brand asset generation |
 | `Brand` | Current generated app icon and source vector artwork; do not add retired-logo archives |
 | `DESIGN.md` | Machine-readable tokens and human-readable design rules |
 | `CLAUDE.md` | Commands and cross-file architecture orientation; defers to this file for the contract |
 
 `dist/` and `.build/` are generated. Do not hand-edit or commit them.
 
-The website for `searoom.app` is a separate repository deployed by Cloudflare
-Pages; no website code belongs here. When a release changes the version, the
-macOS floor, requirements, or any sensor-availability claim, the corresponding
-copy on the site has to be updated in that repository.
+The website for `searoom.app` is a separate repository served by a Cloudflare
+Worker with static assets, not Cloudflare Pages; no website code belongs here.
+When a release changes the version, the macOS floor, requirements, or any
+sensor-availability claim, the corresponding copy on the site has to be updated
+in that repository.
 
 ## Runtime architecture
 
@@ -233,7 +235,7 @@ Useful focused checks include:
 ```sh
 clang -Wall -Wextra -Werror -fsyntax-only \
   -I Sources/CSearoomSensors/include Sources/CSearoomSensors/SearoomSensors.c
-bash -n Scripts/build-app.sh Scripts/notarize.sh Scripts/run-dev.sh
+bash -n Scripts/build-app.sh Scripts/notarize.sh Scripts/release.sh Scripts/run-dev.sh
 plutil -lint Support/Info.plist
 ```
 
@@ -247,7 +249,7 @@ plutil -lint Support/Info.plist
 | Persistence or settings | Migration/round-trip test, corrupted-old-data behavior, self-test |
 | Dashboard, dither, icon, status text, or scrolling | Build packaged app; inspect light/dark, VoiceOver labels, closed-popover idle cost; open repeatedly to check for first-frame lateral shift; verify horizontal gestures do nothing, vertical input still scrolls, and no scrollbar appears |
 | Shortcut, menu, or lifecycle | Test status-item left/right click, recorded shortcut conflict, `⌘,`, and `⌘Q` from popover and Settings |
-| Packaging or plist | Run packaging script, `plutil`, strict `codesign --verify`, and packaged self-test |
+| Packaging or plist | Run packaging script, `plutil`, strict `codesign --verify`, and packaged self-test. For a release build also confirm `spctl --assess` reports `accepted` from a `Notarized Developer ID` source |
 | Design system | Upstream `design.md` lint with zero errors and zero warnings |
 
 Hardware sensor changes should be checked on the affected Mac model and macOS release. Do not turn one-machine success into a universal availability claim.
@@ -271,4 +273,4 @@ plutil -lint dist/Searoom.app/Contents/Info.plist
 
 Developer ID signing uses `CODE_SIGN_IDENTITY`; notarization uses a preconfigured notarytool keychain profile via `Scripts/notarize.sh`. Signing, notarization, publishing, changing external login items, and creating releases are external side effects—perform them only when explicitly requested. Never place certificates, keychain profiles, Apple credentials, or notarization secrets in the repository.
 
-Update `CFBundleShortVersionString` and `CFBundleVersion` deliberately for releases. Keep the MIT license, third-party notices, bundled font license, privacy statements, and open-source documentation synchronized with shipped artifacts.
+`Scripts/release.sh` derives the tag from `CFBundleShortVersionString` and refuses to publish over an existing tag or release, so the version must be bumped before a new release. Update `CFBundleShortVersionString` and `CFBundleVersion` deliberately for releases. Keep the MIT license, third-party notices, bundled font license, privacy statements, and open-source documentation synchronized with shipped artifacts.

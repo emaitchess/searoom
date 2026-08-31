@@ -42,7 +42,7 @@ Focused checks worth running when you touch the matching area:
 
 ```sh
 clang -Wall -Wextra -Werror -fsyntax-only -I Sources/CSearoomSensors/include Sources/CSearoomSensors/SearoomSensors.c
-bash -n Scripts/build-app.sh Scripts/notarize.sh
+bash -n Scripts/build-app.sh Scripts/notarize.sh Scripts/release.sh
 plutil -lint Support/Info.plist
 codesign --verify --deep --strict --verbose=2 dist/Searoom.app
 ```
@@ -114,4 +114,4 @@ Thresholds live in one place, `PressureLevel.from(utilization:)` (70/85/95). Cha
 - `swift test` needs XCTest, which some Command Line Tools installations omit; it then fails with `unable to resolve module dependency: 'XCTest'`. When that happens, say the tests did not run, and fall back to `--self-test`, which is deliberately framework-independent. CI runs on `macos-15` with full Xcode.
 - `dist/` and `.build/` are generated. Do not hand-edit or commit them.
 - The canonical website is `https://searoom.app`, the repository is `https://github.com/emaitchess/searoom`, and the permanent bundle identifier is `app.searoom.Searoom`; keep public links and packaging metadata aligned with them.
-- The website is a **separate repository**, deployed by Cloudflare Pages. This repository holds no website code. Release-bearing copy on the site (version number, macOS floor, requirements, sensor-availability claims) has to be updated there when it changes here.
+- The website is a **separate repository**, served by a Cloudflare Worker with static assets (not Cloudflare Pages). This repository holds no website code. Release-bearing copy on the site (version number, macOS floor, requirements, sensor-availability claims) has to be updated there when it changes here.
