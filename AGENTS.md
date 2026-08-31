@@ -43,6 +43,11 @@ Preserve these non-negotiable properties:
 
 `dist/` and `.build/` are generated. Do not hand-edit or commit them.
 
+The website for `searoom.app` is a separate repository deployed by Cloudflare
+Pages; no website code belongs here. When a release changes the version, the
+macOS floor, requirements, or any sensor-availability claim, the corresponding
+copy on the site has to be updated in that repository.
+
 ## Runtime architecture
 
 The intended data flow is deliberately short:

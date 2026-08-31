@@ -87,6 +87,9 @@ so a conversion failure cannot leave the checked-in formats out of sync.
 
 Requirements: macOS 14+, Swift 6, and the macOS command-line developer tools.
 
+The website for [searoom.app](https://searoom.app) is maintained in its own
+repository and is not part of this one.
+
 For day-to-day development, build and run the debug executable directly. It
 stays attached to the terminal and stops with `Ctrl-C`; no app bundle is needed:
 
