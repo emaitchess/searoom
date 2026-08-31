@@ -143,7 +143,18 @@ final class SettingsWindowController: NSWindowController {
         note.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(note)
 
-        let license = makeLabel("OPEN SOURCE · MIT · NO ANALYTICS · NO NETWORK ACCESS", size: 8, color: .secondaryLabelColor)
+        // The version belongs here rather than in a separate row: it is reference
+        // information, not a control, and it replaces the "no network access"
+        // claim that the user-initiated update check made untrue.
+        let version = UpdateChecker.currentVersion
+        let license = makeLabel(
+            "SEAROOM \(version) · OPEN SOURCE · MIT · NO ANALYTICS",
+            size: 8,
+            color: .secondaryLabelColor
+        )
+        license.setAccessibilityLabel(
+            "Searoom version \(version). Open source, MIT licensed, no analytics."
+        )
         license.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(license)
 
