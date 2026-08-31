@@ -38,6 +38,20 @@ enum SelfTest {
             "compact fan formatting"
         )
         check(ThermalCollector.sensorDecoderSelfTest(), "SMC sensor decoding")
+
+        check(UpdateChecker.isNewer("0.2.0", than: "0.1.0"), "update check sees a newer version")
+        check(!UpdateChecker.isNewer("0.1.0", than: "0.1.0"), "update check treats equal versions as current")
+        check(!UpdateChecker.isNewer("0.1.0", than: "0.2.0"), "update check does not offer a downgrade")
+        // Lexical comparison would call 0.9.0 newer than 0.10.0.
+        check(UpdateChecker.isNewer("0.10.0", than: "0.9.0"), "update check compares numerically")
+        check(!UpdateChecker.isNewer("0.2", than: "0.2.0"), "update check pads missing components")
+        check(
+            UpdateChecker.outcome(
+                for: UpdateManifest(version: "0.1.0", url: "https://example.invalid"),
+                current: "0.1.0"
+            ) == .upToDate(current: "0.1.0"),
+            "update outcome reports up to date"
+        )
         check(
             abs((BatteryCollector.normalizeTemperature(2_759) ?? 0) - 27.59) < 0.001,
             "battery temperature scaling"

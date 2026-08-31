@@ -554,6 +554,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         return "System \(sample.overallPressureLevel.systemLabel), menu bar \(visibleMetrics), CPU \(MetricFormat.percent(sample.cpuUsage)), memory \(MetricFormat.bytes(sample.memoryUsed)) used, temperature \(MetricFormat.temperature(sample.temperatureCelsius))"
     }
 
+    /// The only network request Searoom makes, and only from this menu item.
+    /// Nothing is downloaded or installed: a newer version opens the release
+    /// page in the browser and the user decides what to do.
+    @objc private func checkForUpdates() {
+        UpdateChecker.check { outcome in
+            Task { @MainActor in UpdatePresenter.present(outcome) }
+        }
+    }
+
     private func configureApplicationMenu() {
         let mainMenu = NSMenu(title: "Searoom")
         let applicationItem = NSMenuItem(title: "Searoom", action: nil, keyEquivalent: "")
@@ -566,6 +575,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         )
         aboutItem.target = self
         applicationMenu.addItem(aboutItem)
+
+        let updatesItem = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        updatesItem.target = self
+        applicationMenu.addItem(updatesItem)
 
         let settingsItem = NSMenuItem(
             title: "Settings",
@@ -615,11 +632,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let aboutItem = NSMenuItem(title: "About Searoom", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
+        let updatesItem = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        updatesItem.target = self
+        menu.addItem(updatesItem)
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "Quit Searoom", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.target = NSApp
         menu.addItem(quitItem)
         return menu
+    }
+}
+
+@MainActor
+enum UpdatePresenter {
+    static func present(_ outcome: UpdateCheckOutcome) {
+        let alert = NSAlert()
+        NSApp.activate(ignoringOtherApps: true)
+
+        switch outcome {
+        case .upToDate(let current):
+            alert.messageText = "Searoom is up to date."
+            alert.informativeText = "You are running version \(current)."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+
+        case .updateAvailable(let version, let url):
+            alert.messageText = "Searoom \(version) is available."
+            alert.informativeText = "You are running \(UpdateChecker.currentVersion). "
+                + "Searoom does not install updates itself, so the release page "
+                + "will open in your browser."
+            alert.addButton(withTitle: "Open Release Page")
+            alert.addButton(withTitle: "Later")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(url)
+            }
+
+        case .failed(let reason):
+            alert.alertStyle = .warning
+            alert.messageText = "Could not check for updates."
+            alert.informativeText = reason
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 }
 

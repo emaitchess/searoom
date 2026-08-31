@@ -390,4 +390,37 @@ final class SearoomTests: XCTestCase {
             from: JSONSerialization.data(withJSONObject: object)
         )
     }
+    func testUpdateVersionComparisonIsNumericNotLexical() {
+        XCTAssertTrue(UpdateChecker.isNewer("0.2.0", than: "0.1.0"))
+        XCTAssertTrue(UpdateChecker.isNewer("1.0.0", than: "0.9.9"))
+        // The case string comparison gets wrong.
+        XCTAssertTrue(UpdateChecker.isNewer("0.10.0", than: "0.9.0"))
+        XCTAssertFalse(UpdateChecker.isNewer("0.9.0", than: "0.10.0"))
+    }
+
+    func testUpdateVersionComparisonTreatsMissingComponentsAsZero() {
+        XCTAssertFalse(UpdateChecker.isNewer("0.2", than: "0.2.0"))
+        XCTAssertFalse(UpdateChecker.isNewer("0.2.0", than: "0.2"))
+        XCTAssertTrue(UpdateChecker.isNewer("0.2.1", than: "0.2"))
+    }
+
+    func testUpdateOutcomeDoesNotOfferAnOlderOrEqualVersion() {
+        let manifest = UpdateManifest(version: "0.1.0", url: "https://searoom.app/")
+        XCTAssertEqual(
+            UpdateChecker.outcome(for: manifest, current: "0.1.0"),
+            .upToDate(current: "0.1.0")
+        )
+        XCTAssertEqual(
+            UpdateChecker.outcome(for: manifest, current: "0.2.0"),
+            .upToDate(current: "0.2.0")
+        )
+    }
+
+    func testUpdateOutcomeRejectsAnUnusableLink() {
+        let manifest = UpdateManifest(version: "9.9.9", url: "")
+        guard case .failed = UpdateChecker.outcome(for: manifest, current: "0.1.0") else {
+            return XCTFail("an empty URL should not produce an update prompt")
+        }
+    }
+
 }

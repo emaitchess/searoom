@@ -105,8 +105,11 @@ spctl --assess --type execute --verbose=4 /Applications/Searoom.app
 # source=Notarized Developer ID
 ```
 
-Searoom has no updater and makes no network requests, so it will never tell you
-a new version exists. Watch the repository's releases to hear about them.
+Searoom never installs updates itself and never checks on its own schedule.
+Choosing Check for Updates from its menu fetches a small version manifest from
+searoom.app and offers to open the releases page; nothing else reaches the
+network. Homebrew can also do the upgrade for you, and watching this
+repository's releases works too.
 
 ## Build
 
@@ -175,8 +178,13 @@ For a local diagnostic sample without opening the UI:
 
 ## Storage and privacy
 
-Searoom contains no analytics, updater, network client, account system or crash
-uploader. Settings use `UserDefaults`. Trend samples are written atomically, at
+Searoom contains no analytics, no account system, no crash uploader, and nothing
+that reaches the network on its own schedule. The one exception is the Check for
+Updates menu item: choosing it requests
+[`searoom.app/latest.json`](https://searoom.app/latest.json), compares that
+version with the running one, and offers to open the releases page in your
+browser. It sends nothing describing your Mac, and it downloads and installs
+nothing. Settings use `UserDefaults`. Trend samples are written atomically, at
 most once per minute, to:
 
 ```text

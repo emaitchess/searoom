@@ -13,7 +13,7 @@ Searoom is a local-only macOS 14+ menu-bar instrument for understanding remainin
 Preserve these non-negotiable properties:
 
 - Keep the runtime native, small, and dependency-free unless a new dependency has a compelling measured benefit.
-- Do not add analytics, crash uploading, remote configuration, update checks, accounts, or runtime network requests.
+- Do not add analytics, crash uploading, remote configuration, accounts, or any network activity Searoom starts by itself. The single exception is the update check behind the Check for Updates menu item: it runs only when the user chooses it, fetches one static version manifest, sends nothing describing the Mac, and downloads and installs nothing. It must never gain a schedule, a background trigger, a payload, or the ability to install an update.
 - Do not add a privileged helper or require root, Accessibility, or Input Monitoring permission.
 - Prefer public macOS APIs. Treat SMC and undocumented IORegistry values as read-only, best-effort sources.
 - Represent an unavailable sensor as unavailable (`nil` or `.unavailable`), never as a fabricated zero.
