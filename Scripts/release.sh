@@ -47,6 +47,7 @@ fail() { printf '\033[31merror: %s\033[0m\n' "$1" >&2; exit 1; }
 
 APP_PATH="$REPOSITORY_ROOT/dist/Searoom.app"
 ARCHIVE_PATH="$REPOSITORY_ROOT/dist/Searoom.zip"
+DMG_PATH="$REPOSITORY_ROOT/dist/Searoom.dmg"
 VERSION="$(plutil -extract CFBundleShortVersionString raw Support/Info.plist)"
 BUILD_NUMBER="$(plutil -extract CFBundleVersion raw Support/Info.plist)"
 TAG="v$VERSION"
@@ -105,12 +106,37 @@ grep -q 'TeamIdentifier=' <<<"$SIGNATURE" \
 step "Notarize and staple"
 "$SCRIPT_DIR/notarize.sh" "$APP_PATH" "$NOTARY_KEYCHAIN_PROFILE"
 
-step "Verify the download as Gatekeeper sees it"
+step "Verify the app as Gatekeeper sees it"
 xcrun stapler validate "$APP_PATH"
 spctl --assess --type execute --verbose=4 "$APP_PATH"
 
+step "Build and notarize the disk image"
+# The zip leaves Searoom.app wherever it was expanded, usually ~/Downloads, where
+# App Translocation runs quarantined apps from a randomised read-only path and
+# SMAppService launch-at-login registration is unreliable. The disk image makes
+# dragging to /Applications the obvious gesture.
+#
+# The app inside is already notarized and stapled, so it stays valid once dragged
+# out. The image is signed and notarized separately so it is also valid offline.
+STAGING_DIR="$(mktemp -d)"
+cp -R "$APP_PATH" "$STAGING_DIR/"
+ln -s /Applications "$STAGING_DIR/Applications"
+rm -f "$DMG_PATH"
+hdiutil create -volname "Searoom" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_PATH" >/dev/null
+rm -rf "$STAGING_DIR"
+
+codesign --force --sign "$CODE_SIGN_IDENTITY" --timestamp "$DMG_PATH"
+xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_KEYCHAIN_PROFILE" --wait
+xcrun stapler staple "$DMG_PATH"
+xcrun stapler validate "$DMG_PATH"
+spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+
 CHECKSUM="$(shasum -a 256 "$ARCHIVE_PATH" | cut -d' ' -f1)"
+DMG_CHECKSUM="$(shasum -a 256 "$DMG_PATH" | cut -d' ' -f1)"
 SIZE="$(du -h "$ARCHIVE_PATH" | cut -f1 | tr -d ' ')"
+DMG_SIZE="$(du -h "$DMG_PATH" | cut -f1 | tr -d ' ')"
+echo "Disk image   $DMG_PATH ($DMG_SIZE)"
+echo "SHA-256      $DMG_CHECKSUM"
 echo "Archive      $ARCHIVE_PATH ($SIZE)"
 echo "SHA-256      $CHECKSUM"
 
@@ -126,25 +152,28 @@ PREVIOUS_TAG="$(git describe --tags --abbrev=0 "HEAD" 2>/dev/null || true)"
 git tag -a "$TAG" -m "Searoom $VERSION"
 git push origin "$TAG"
 
-NOTES="Requires macOS 14 or later on Apple silicon. Signed with a Developer ID certificate and notarized by Apple, so it opens with a normal double-click rather than a Gatekeeper prompt.
+NOTES="Requires macOS 14 or later on Apple silicon. Both downloads are signed with a Developer ID certificate and notarized by Apple, so they open with a normal double-click rather than a Gatekeeper prompt.
+
+\`Searoom.dmg\` is the one to take: drag Searoom to Applications. Launch at login needs the app in a stable location, and an app left in Downloads can be run from a randomised read-only path instead. \`Searoom.zip\` is there for scripted installs.
 
 Searoom has no updater and no network client, so new versions are announced here only. Watch the repository's releases to hear about them.
 
-\`Searoom.zip\` SHA-256:
+SHA-256:
 
-    $CHECKSUM"
+    Searoom.dmg  $DMG_CHECKSUM
+    Searoom.zip  $CHECKSUM"
 
 # Generated notes need an earlier tag to diff against. On the first release
 # there is none, and generating from the repository root would list every commit
 # ever made, so the explicit notes stand alone.
 if [[ -n "$PREVIOUS_TAG" ]]; then
-    gh release create "$TAG" "$ARCHIVE_PATH" \
+    gh release create "$TAG" "$DMG_PATH" "$ARCHIVE_PATH" \
         --title "Searoom $VERSION" \
         --generate-notes --notes-start-tag "$PREVIOUS_TAG" \
         --notes "$NOTES" \
         || fail "tag $TAG was pushed but the release failed. Re-run: gh release create $TAG $ARCHIVE_PATH ..."
 else
-    gh release create "$TAG" "$ARCHIVE_PATH" \
+    gh release create "$TAG" "$DMG_PATH" "$ARCHIVE_PATH" \
         --title "Searoom $VERSION" \
         --notes "$NOTES" \
         || fail "tag $TAG was pushed but the release failed. Delete it with: git push --delete origin $TAG && git tag -d $TAG"

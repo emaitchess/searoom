@@ -87,9 +87,13 @@ so a conversion failure cannot leave the checked-in formats out of sync.
 
 ## Install
 
-Download `Searoom.zip` from the
-[latest release](https://github.com/emaitchess/searoom/releases/latest),
-unzip it, and move `Searoom.app` to `/Applications`.
+Download `Searoom.dmg` from the
+[latest release](https://github.com/emaitchess/searoom/releases/latest), open it,
+and drag Searoom to Applications.
+
+Install it there rather than running it from `~/Downloads`. macOS runs a
+quarantined app from a randomised read-only path, which makes launch-at-login
+registration unreliable. `Searoom.zip` is also published for scripted installs.
 
 Releases are signed with a Developer ID certificate and notarized by Apple, so
 the app opens with a normal double-click rather than a Gatekeeper warning. Verify
