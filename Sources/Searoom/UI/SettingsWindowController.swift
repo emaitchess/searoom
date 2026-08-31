@@ -14,6 +14,7 @@ final class SettingsWindowController: NSWindowController {
     private let shortcutError = NSTextField(labelWithString: "")
     private let launchButton = NSButton(checkboxWithTitle: "Launch Searoom at login", target: nil, action: nil)
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
+    private let updatesButton = NSButton(title: "Check for Updates", target: nil, action: nil)
     private let emaitchessButton = NSButton(title: "PART OF EMAITCHESS ↗", target: nil, action: nil)
 
     init(model: AppModel, shortcutManager: GlobalShortcutManager) {
@@ -113,6 +114,14 @@ final class SettingsWindowController: NSWindowController {
         resetHistoryButton.target = self
         resetHistoryButton.action = #selector(resetHistory)
         resetHistoryButton.setAccessibilityLabel("Reset saved trend history")
+        updatesButton.bezelStyle = .rounded
+        updatesButton.controlSize = .small
+        updatesButton.target = self
+        updatesButton.action = #selector(checkForUpdates)
+        updatesButton.setAccessibilityLabel("Check for Searoom updates")
+        updatesButton.setAccessibilityHelp(
+            "Asks searoom.app which version is current. Nothing is downloaded or installed."
+        )
 
         let grid = NSGridView(views: [
             [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), presetPopUp],
@@ -128,7 +137,7 @@ final class SettingsWindowController: NSWindowController {
         grid.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(grid)
 
-        let storageControls = NSStackView(views: [launchButton, resetHistoryButton])
+        let storageControls = NSStackView(views: [launchButton, updatesButton, resetHistoryButton])
         storageControls.orientation = .horizontal
         storageControls.alignment = .centerY
         storageControls.distribution = .equalSpacing
@@ -261,6 +270,14 @@ final class SettingsWindowController: NSWindowController {
             alert.messageText = "Could not update Login Items"
             alert.informativeText = error.localizedDescription
             if let window { alert.beginSheetModal(for: window) }
+        }
+    }
+
+    /// Settings is where people look for this, so the check is reachable here as
+    /// well as from the status-item menu. Both paths run only on activation.
+    @objc private func checkForUpdates() {
+        UpdateChecker.check { outcome in
+            Task { @MainActor in UpdatePresenter.present(outcome) }
         }
     }
 
