@@ -110,7 +110,10 @@ All fractional utilization and pressure values use the closed range `0...1`. Cla
 - Network I/O aggregates active, non-loopback interfaces. Counter rollback yields zero for that interval.
 - Disk I/O is a delta of IORegistry byte counters.
 - Swap I/O is a delta of Mach swap-in and swap-out page counters converted to bytes per second. The first read is a zero baseline and counter rollback yields zero for that interval.
+- Compressed memory is the compressor-page share of the working set and is already included in memory used. Compression and decompression rates are deltas of Mach page counters converted to bytes per second with the same first-read zero baseline and rollback handling as swap rates.
+- Disk capacity reads the root volume through `statfs`; the root shares its APFS container with the Data volume. Available space excludes purgeable files and is presented as a neutral capacity reading, never a derived pressure level.
 - Low Power Mode is read from `ProcessInfo.isLowPowerModeEnabled`; it is a system state, not a Searoom-derived pressure signal.
+- Sustained pressure is derived from retained history: the time since the oldest sample still holding the current overall level. It is window-bounded, hidden below one minute, and suffixed with `+` when the run spans every retained sample.
 - Searoom process CPU is elapsed process CPU time divided by wall time. It can exceed `1.0` when multiple cores are used, so do not apply the system utilization clamp to it without changing its meaning.
 
 Pressure thresholds are centralized in `PressureLevel.from(utilization:)`: 70% elevated, 85% constrained, and 95% critical. Any formula or threshold change requires tests and matching documentation in `README.md` and relevant UI help.

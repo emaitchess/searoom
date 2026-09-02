@@ -13,21 +13,23 @@ Mac.
 
 ## Status
 
-Searoom is an early open-source build. CPU, memory, network, disk, uptime,
-process impact, battery and macOS thermal-state collection are functional.
-Direct temperature, fan and GPU utilization are best-effort because Apple does
-not provide stable universal public APIs for these values; unsupported sensors
-are shown as unavailable.
+Searoom is an early open-source build. CPU, memory, memory compression, swap,
+network, disk throughput and capacity, uptime, process impact, battery and macOS
+thermal-state collection are functional. Direct temperature, fan, GPU utilization
+and GPU working-set memory are best-effort because Apple does not provide stable
+universal public APIs for these values; unsupported sensors are shown as
+unavailable.
 
 ## Metrics
 
-- RAM working set, available memory, cache, swap usage, swap I/O and memory pressure
+- RAM working set, available memory, cache, compressed memory, swap usage, swap I/O and memory pressure
 - CPU utilization, load average and derived CPU saturation pressure
 - Best-effort CPU/package temperature and macOS thermal pressure
 - Network download/upload throughput
-- Best-effort GPU utilization and derived GPU pressure
+- Best-effort GPU utilization, working-set memory and derived GPU pressure
 - Best-effort fan RPM
-- Disk read/write throughput
+- Disk read/write throughput and remaining capacity
+- How long the current overall pressure level has been held
 - Uptime, process count, battery level, power source and Low Power Mode
 - Searoom's own CPU and resident-memory usage
 - Bounded dithered trend graphs for load-bearing metrics
@@ -52,10 +54,11 @@ Monitoring permission.
 Custom mode provides up to three ordered metric slots and defaults to CPU usage,
 RAM used and temperature. Its compact metric list includes pressure states,
 separate or combined RAM free/used values, swap, network and disk directions,
-GPU, fan, power, uptime, and Searoom's own CPU and memory. Duplicate choices
-are collapsed and choosing `None` can reduce the display to one or two metrics.
-Changing the custom layout recalculates the natural text width; sampling updates
-reuse the selected metrics' stable value columns.
+GPU and GPU memory, disk free, fan, power, uptime, and Searoom's own CPU and
+memory. Duplicate choices are collapsed and choosing `None` can reduce the
+display to one or two metrics. Changing the custom layout recalculates the
+natural text width; sampling updates reuse the selected metrics' stable value
+columns.
 
 The dashboard footer provides equal-width shortcuts to Settings, the system
 Activity Monitor, and Quit.
@@ -205,10 +208,25 @@ samples without changing preferences, shortcuts or launch-at-login state.
   working-set ratio for its trend value.
 - **Swap I/O** is the byte rate derived from deltas of Mach swap-in and swap-out
   page counters. Its first sample is zero because it establishes the baseline.
+- **Compressed memory** is the macOS compressor's share of the working set and is
+  already counted inside memory used. Compression and decompression rates are
+  byte rates from deltas of Mach page counters; their first sample is zero.
 - **CPU pressure** is not macOS PSI. It is a documented saturation signal: the
   greater of CPU utilization and one-minute load average normalized by active
   logical CPUs.
-- **GPU pressure** is utilization-derived when a utilization sensor exists.
+- **GPU pressure** is derived, not an Apple pressure API: the greater of
+  best-effort GPU utilization and the ratio of in-use GPU system memory to the
+  Metal-recommended working-set size. In-use memory is a read-only IORegistry
+  value bounded by physical memory; the working-set budget comes from the public
+  Metal API. Without a supported utilization key both utilization and pressure
+  are unavailable.
+- **Disk capacity** reads the root volume, which shares its APFS container with
+  the Data volume. Available space excludes purgeable files. Remaining capacity
+  is a neutral reading, not a pressure signal.
+- **Sustained pressure** reports how long the current overall pressure level has
+  been held, bounded by the retained history window. A `+` suffix means the run
+  spans every retained sample, so the window rather than the Mac limits the
+  figure.
 - **Low Power Mode** is the current system power state reported by
   `ProcessInfo`; macOS may reduce CPU and GPU performance while it is enabled.
 - **Network throughput** aggregates active non-loopback interfaces; VPN or other

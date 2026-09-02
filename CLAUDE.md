@@ -70,7 +70,7 @@ Never add a second timer, a `Task.detached`, or a parallel collector. Rate colle
 
 ### Cadence is tiered by API cost
 
-`SystemMetricsCollector.collect()` reads CPU, memory, and network every tick. It caches disk, thermal/fan, and GPU behind staggered monotonic deadlines of five, six, and seven seconds so their expensive work does not land in one burst. Two collectors gate themselves internally: `BatteryCollector` at 30 seconds and `ProcessCollector`'s process count at 60 seconds. `GPUCollector` retains discovered IORegistry services and backs off discovery for 60 seconds when telemetry is unsupported. Adding a metric means choosing a tier — do not put an expensive read on the per-tick path.
+`SystemMetricsCollector.collect()` reads CPU, memory, and network every tick. It caches disk, thermal/fan, and GPU behind staggered monotonic deadlines of five, six, and seven seconds so their expensive work does not land in one burst. Three collectors gate themselves internally: `BatteryCollector` and `DiskCapacityCollector` at 30 seconds and `ProcessCollector`'s process count at 60 seconds. `GPUCollector` retains discovered IORegistry services and backs off discovery for 60 seconds when telemetry is unsupported. Adding a metric means choosing a tier — do not put an expensive read on the per-tick path.
 
 ### State ownership
 
@@ -101,7 +101,7 @@ Thresholds live in one place, `PressureLevel.from(utilization:)` (70/85/95). Cha
 
 ### Drawing
 
-`DashboardView` custom-draws the dashboard without a view hierarchy per metric. Its only drawing subview is a graph-sized transparent hover overlay, which must move without invalidating or rebuilding the chart beneath it. `DashboardTrendRefreshPolicy` keeps graph projection/redraw work on a five-second cadence while live numeric sections remain sample-rate responsive; `DashboardTrendSampleLocator` snaps hover to a real retained timestamp. Both pure helpers live in `UI/DashboardRefreshPolicy.swift` and have direct XCTest and self-test coverage.
+`DashboardView` custom-draws the dashboard without a view hierarchy per metric. Its only drawing subview is a graph-sized transparent hover overlay, which must move without invalidating or rebuilding the chart beneath it. `DashboardTrendRefreshPolicy` keeps graph projection/redraw work on a five-second cadence while live numeric sections remain sample-rate responsive; `DashboardTrendSampleLocator` snaps hover to a real retained timestamp. The six primary trends (CPU, memory, GPU, GPU memory, disk capacity, thermal) share one synchronized hover, while the network trend keeps its own; the memory trend draws a dual series of the used and compressed ratios. Both pure helpers live in `UI/DashboardRefreshPolicy.swift` and have direct XCTest and self-test coverage.
 
 `DitherPattern` caches `NSColor` pattern images by compact color/density keys, `SearoomIcon` caches one template image per `PressureLevel`, and `SearoomStatusDot` caches the light/dark semantic dot used by text menu-bar modes. These assume determinism, so dither must never be randomized or animated. Minimal remains the only mode that displays the Searoom mark; the text-mode dot is a pressure marker, not a logo. Text-mode titles are assembled from `MenuBarComponent` values separated by a compact unspaced `·`; pressure components use semantic health colors, active I/O uses the cool color without implying distress, idle I/O is subdued, and non-health values stay neutral.
 
