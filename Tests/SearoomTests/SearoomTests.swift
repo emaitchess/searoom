@@ -458,7 +458,7 @@ final class SearoomTests: XCTestCase {
             physicalMemory: physicalMemory
         ))
         XCTAssertEqual(
-            GPUCollector.workingSetRatio(used: 9, recommended: 10),
+            GPUCollector.workingSetRatio(used: 9, recommended: 10) ?? .nan,
             0.9,
             accuracy: 0.0001
         )
@@ -466,7 +466,7 @@ final class SearoomTests: XCTestCase {
         XCTAssertNil(GPUCollector.workingSetRatio(used: 9, recommended: nil))
         XCTAssertNil(GPUCollector.workingSetRatio(used: 9, recommended: 0))
         XCTAssertEqual(
-            GPUCollector.workingSetRatio(used: 20, recommended: 10),
+            GPUCollector.workingSetRatio(used: 20, recommended: 10) ?? .nan,
             1.0,
             accuracy: 0.0001,
             "the ratio clamps at the top of the closed range"
