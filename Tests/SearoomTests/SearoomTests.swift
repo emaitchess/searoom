@@ -345,6 +345,8 @@ final class SearoomTests: XCTestCase {
         object.removeValue(forKey: "gpuMemoryUsedBytes")
         object.removeValue(forKey: "gpuMemoryRecommendedBytes")
         object.removeValue(forKey: "gpuMemoryPressure")
+        object.removeValue(forKey: "diskCapacityBytes")
+        object.removeValue(forKey: "diskAvailableBytes")
 
         let legacyData = try JSONSerialization.data(withJSONObject: object)
         let decoded = try JSONDecoder().decode(SystemSample.self, from: legacyData)
@@ -358,6 +360,8 @@ final class SearoomTests: XCTestCase {
         XCTAssertNil(decoded.gpuMemoryUsedBytes)
         XCTAssertNil(decoded.gpuMemoryRecommendedBytes)
         XCTAssertNil(decoded.gpuMemoryPressure)
+        XCTAssertNil(decoded.diskCapacityBytes)
+        XCTAssertNil(decoded.diskAvailableBytes)
     }
 
     func testBatteryTemperatureNormalization() {
@@ -454,6 +458,19 @@ final class SearoomTests: XCTestCase {
         if let gpuMemoryPressure = sample.gpuMemoryPressure {
             XCTAssertTrue((0...1).contains(gpuMemoryPressure))
         }
+        if let diskCapacity = sample.diskCapacityBytes {
+            XCTAssertGreaterThan(diskCapacity, 0)
+        }
+        if let diskAvailable = sample.diskAvailableBytes {
+            XCTAssertGreaterThanOrEqual(diskAvailable, 0)
+        }
+        if let diskCapacity = sample.diskCapacityBytes, let diskAvailable = sample.diskAvailableBytes {
+            XCTAssertLessThanOrEqual(diskAvailable, diskCapacity)
+        }
+        XCTAssertTrue(
+            (sample.diskCapacityBytes == nil) == (sample.diskAvailableBytes == nil),
+            "capacity and availability become unavailable together"
+        )
         XCTAssertGreaterThan(sample.processMemoryBytes, 0)
     }
 

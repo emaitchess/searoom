@@ -163,6 +163,8 @@ enum SelfTest {
             legacySample.removeValue(forKey: "gpuMemoryUsedBytes")
             legacySample.removeValue(forKey: "gpuMemoryRecommendedBytes")
             legacySample.removeValue(forKey: "gpuMemoryPressure")
+            legacySample.removeValue(forKey: "diskCapacityBytes")
+            legacySample.removeValue(forKey: "diskAvailableBytes")
             let legacySampleData = try? JSONSerialization.data(withJSONObject: legacySample)
             let decodedSample = legacySampleData.flatMap {
                 try? JSONDecoder().decode(SystemSample.self, from: $0)
@@ -175,6 +177,8 @@ enum SelfTest {
             check(decodedSample?.decompressionBytesPerSecond == 0, "sample decompression rate migration")
             check(decodedSample?.gpuMemoryUsedBytes == nil, "sample GPU working-set migration")
             check(decodedSample?.gpuMemoryPressure == nil, "sample GPU memory pressure migration")
+            check(decodedSample?.diskCapacityBytes == nil, "sample disk capacity migration")
+            check(decodedSample?.diskAvailableBytes == nil, "sample disk availability migration")
         } else {
             failures.append("sample migration fixture")
         }
@@ -195,6 +199,16 @@ enum SelfTest {
         if let gpuMemoryPressure = sample.gpuMemoryPressure {
             check((0...1).contains(gpuMemoryPressure), "bounded GPU memory pressure")
         }
+        if let diskCapacity = sample.diskCapacityBytes {
+            check(diskCapacity > 0, "bounded disk capacity")
+            if let diskAvailable = sample.diskAvailableBytes {
+                check(diskAvailable <= diskCapacity, "bounded disk availability")
+            }
+        }
+        check(
+            (sample.diskCapacityBytes == nil) == (sample.diskAvailableBytes == nil),
+            "disk capacity and availability agree"
+        )
         check((0...1).contains(sample.cpuUsage), "bounded CPU")
         check(sample.processMemoryBytes > 0, "self memory")
 

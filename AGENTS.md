@@ -66,7 +66,7 @@ MetricsEngine utility queue
 - `MetricsEngine` owns one serial utility-QoS `DispatchSourceTimer`. Do not create a timer per metric.
 - The sample interval is clamped to at least one second and uses timer leeway to avoid unnecessary wakeups.
 - `SystemMetricsCollector` and its subcollectors are stateful. Rate metrics require previous counters and a monotonic timestamp, so they must stay on the engine's serial queue.
-- Disk, thermal/fan, and GPU reads are cached on staggered five-, six-, and seven-second monotonic deadlines. Battery data is cached for 30 seconds; process count for 60 seconds. GPU service discovery is retained across reads and negatively cached for 60 seconds when unavailable.
+- Disk, thermal/fan, and GPU reads are cached on staggered five-, six-, and seven-second monotonic deadlines. Battery data and disk capacity are cached for 30 seconds; process count for 60 seconds. GPU service discovery is retained across reads and negatively cached for 60 seconds when unavailable.
 - `AppModel` is `@MainActor`. It is the sole owner of current UI state, settings, and in-memory history.
 - Trend history uses the dependency-free `RingBuffer`, with constant-time front expiry and append. Convert it to a contiguous array only at explicit persistence or interoperability boundaries.
 - AppKit work remains on the main actor. Do not draw, mutate views, or touch `NSStatusItem` from the metrics queue.

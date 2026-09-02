@@ -99,3 +99,36 @@ final class DiskCollector {
         return (totalRead, totalWrite)
     }
 }
+
+final class DiskCapacityCollector {
+    private var cached: (capacityBytes: UInt64?, availableBytes: UInt64?) = (nil, nil)
+    private let clock = ContinuousClock()
+    private var nextRead: ContinuousClock.Instant?
+
+    func read() -> (capacityBytes: UInt64?, availableBytes: UInt64?) {
+        let now = clock.now
+        guard nextRead.map({ now >= $0 }) ?? true else { return cached }
+        nextRead = now.advanced(by: .seconds(30))
+
+        // The root volume shares its APFS container with the Data volume, so a
+        // single root read describes the capacity users see in Finder. Available
+        // space excludes purgeable files, matching the volume's raw free space.
+        var stats = statfs()
+        guard let path = ("/" as NSString).utf8String,
+              statfs(path, &stats) == 0,
+              stats.f_bsize > 0
+        else {
+            cached = (nil, nil)
+            return cached
+        }
+        let blockSize = UInt64(stats.f_bsize)
+        let capacity = UInt64(stats.f_blocks) * blockSize
+        let available = UInt64(stats.f_bavail) * blockSize
+        guard capacity > 0, available <= capacity else {
+            cached = (nil, nil)
+            return cached
+        }
+        cached = (capacity, available)
+        return cached
+    }
+}

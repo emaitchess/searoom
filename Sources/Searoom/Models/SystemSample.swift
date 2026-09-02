@@ -116,6 +116,8 @@ struct SystemSample: Codable, Equatable, Sendable {
     let networkUploadPerSecond: Double
     let diskReadPerSecond: Double
     let diskWritePerSecond: Double
+    let diskCapacityBytes: UInt64?
+    let diskAvailableBytes: UInt64?
 
     let uptime: TimeInterval
     let processCPUUsage: Double
@@ -181,6 +183,8 @@ extension SystemSample {
         networkUploadPerSecond = try values.decode(Double.self, forKey: .networkUploadPerSecond)
         diskReadPerSecond = try values.decode(Double.self, forKey: .diskReadPerSecond)
         diskWritePerSecond = try values.decode(Double.self, forKey: .diskWritePerSecond)
+        diskCapacityBytes = try values.decodeIfPresent(UInt64.self, forKey: .diskCapacityBytes)
+        diskAvailableBytes = try values.decodeIfPresent(UInt64.self, forKey: .diskAvailableBytes)
         uptime = try values.decode(TimeInterval.self, forKey: .uptime)
         processCPUUsage = try values.decode(Double.self, forKey: .processCPUUsage)
         processMemoryBytes = try values.decode(UInt64.self, forKey: .processMemoryBytes)
@@ -226,6 +230,8 @@ extension SystemSample {
         case networkUploadPerSecond
         case diskReadPerSecond
         case diskWritePerSecond
+        case diskCapacityBytes
+        case diskAvailableBytes
         case uptime
         case processCPUUsage
         case processMemoryBytes
@@ -270,6 +276,8 @@ extension SystemSample {
         networkUploadPerSecond: 0,
         diskReadPerSecond: 0,
         diskWritePerSecond: 0,
+        diskCapacityBytes: nil,
+        diskAvailableBytes: nil,
         uptime: ProcessInfo.processInfo.systemUptime,
         processCPUUsage: 0,
         processMemoryBytes: 0,

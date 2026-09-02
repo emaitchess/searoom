@@ -5,15 +5,18 @@ final class SystemMetricsCollector {
     private let memory = MemoryCollector()
     private let network = NetworkCollector()
     private let disk = DiskCollector()
+    private let diskCapacity = DiskCapacityCollector()
     private let thermal = ThermalCollector()
     private let gpu = GPUCollector()
     private let battery = BatteryCollector()
     private let process = ProcessCollector()
     private let clock = ContinuousClock()
     private var nextDiskReading: ContinuousClock.Instant?
+    private var nextDiskCapacityReading: ContinuousClock.Instant?
     private var nextThermalReading: ContinuousClock.Instant?
     private var nextGPUReading: ContinuousClock.Instant?
     private var cachedDisk: (read: Double, write: Double) = (0, 0)
+    private var cachedDiskCapacity: (capacityBytes: UInt64?, availableBytes: UInt64?) = (nil, nil)
     private var cachedThermal: (temperature: Double?, pressureLevel: PressureLevel, fans: [FanSample]) =
         (nil, .unavailable, [])
     private var cachedGPU: (
@@ -34,6 +37,10 @@ final class SystemMetricsCollector {
         if nextDiskReading.map({ monotonicNow >= $0 }) ?? true {
             cachedDisk = disk.read()
             nextDiskReading = monotonicNow.advanced(by: .seconds(5))
+        }
+        if nextDiskCapacityReading.map({ monotonicNow >= $0 }) ?? true {
+            cachedDiskCapacity = diskCapacity.read()
+            nextDiskCapacityReading = monotonicNow.advanced(by: .seconds(30))
         }
         if nextThermalReading.map({ monotonicNow >= $0 }) ?? true {
             cachedThermal = thermal.read()
@@ -90,6 +97,8 @@ final class SystemMetricsCollector {
             networkUploadPerSecond: networkReading.upload,
             diskReadPerSecond: diskReading.read,
             diskWritePerSecond: diskReading.write,
+            diskCapacityBytes: cachedDiskCapacity.capacityBytes,
+            diskAvailableBytes: cachedDiskCapacity.availableBytes,
             uptime: ProcessInfo.processInfo.systemUptime,
             processCPUUsage: processReading.cpu,
             processMemoryBytes: processReading.memory,
