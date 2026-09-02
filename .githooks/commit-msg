@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# Lints the commit message against Conventional Commits via commitlint.
+#
+# Enable once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Both packages are named explicitly: npx would otherwise fetch only the CLI,
+# and commitlint.config.js extends the shared config, which has to resolve from
+# the same temporary install for `extends` to work.
+#
+# Bypass a single commit with `git commit --no-verify` when a message genuinely
+# cannot fit the convention, for example an imported or machine-generated one.
+
+set -e
+
+if ! command -v npx >/dev/null 2>&1; then
+    printf 'commit-msg: npx not found, skipping commit message lint.\n' >&2
+    exit 0
+fi
+
+exec npx --yes -p @commitlint/cli -p @commitlint/config-conventional \
+    commitlint --edit "$1"

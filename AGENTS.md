@@ -39,6 +39,8 @@ Preserve these non-negotiable properties:
 | `.env.release.example` | Template for the untracked `.env.release` read by `Scripts/release.sh`; names the signing identity and keychain profile, never a secret |
 | `Scripts` | Foreground development launch, app packaging, notarization, release automation, and brand asset generation |
 | `.github/workflows` | `ci.yml` builds and tests every push; `release.yml` audits a published release against the bytes actually attached to it |
+| `commitlint.config.js` | Conventional Commits rules, read by `.githooks/commit-msg` |
+| `.githooks` | Tracked git hooks; enabled per clone with `git config core.hooksPath .githooks` |
 | `Brand` | Current generated app icon and source vector artwork; do not add retired-logo archives |
 | `DESIGN.md` | Machine-readable tokens and human-readable design rules |
 | `CLAUDE.md` | Commands and cross-file architecture orientation; defers to this file for the contract |
@@ -261,6 +263,12 @@ plutil -lint Support/Info.plist
 | Design system | Upstream `design.md` lint with zero errors and zero warnings |
 
 Hardware sensor changes should be checked on the affected Mac model and macOS release. Do not turn one-machine success into a universal availability claim.
+
+## Commit messages
+
+Commits follow Conventional Commits: `type(optional scope): subject`, with the subject in lowercase, in the imperative mood, and without a trailing period. Allowed types are the `@commitlint/config-conventional` set: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`. Subjects stop at 72 characters and body lines wrap at 80; trailer lines are exempt so URLs need not wrap.
+
+`.githooks/commit-msg` runs commitlint through `npx --yes` and needs `git config core.hooksPath .githooks` once per clone. It is a local drafting aid, not an enforcement boundary: it is absent from a fresh clone until configured, skipped when `npx` is missing, and bypassable with `--no-verify`. History before the convention was adopted does not follow it and was deliberately not rewritten.
 
 ## Packaging and release safety
 

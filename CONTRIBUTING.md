@@ -53,6 +53,36 @@ geometry. It stages `AppIcon-1024.png`, `searoom-mark.svg`, and `AppIcon.icns`
 before publishing them together. Do not hand-edit one format in isolation or
 restore retired artwork under `Brand/`.
 
+## Commit messages
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org).
+`commitlint.config.js` extends `@commitlint/config-conventional` and tightens
+two limits to match what this repository already wrote: subjects stop at 72
+characters and body lines wrap at 80. Trailer lines are exempt, so a URL does
+not have to wrap.
+
+```
+feat: add GPU memory and disk cards to the dashboard
+fix: unwrap the optional working-set ratio in its assertions
+ci: gate releases on CI and audit what actually shipped
+```
+
+Enable the check once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook shells out to `npx --yes @commitlint/cli`, so the first commit after
+enabling it downloads commitlint and later ones come from the npm cache. It
+skips with a warning when `npx` is unavailable, and `git commit --no-verify`
+bypasses it for a single commit. Nothing enforces the convention on the server,
+and a fresh clone lints nothing until `core.hooksPath` is set, so treat it as a
+drafting aid rather than a guarantee.
+
+Commits made before the convention was adopted do not follow it and were not
+rewritten.
+
 ## Pull requests
 
 Keep pull requests focused. Explain any formula used for a derived metric and
