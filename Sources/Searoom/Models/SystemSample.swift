@@ -107,6 +107,9 @@ struct SystemSample: Codable, Equatable, Sendable {
     let gpuUsage: Double?
     let gpuPressure: Double?
     let gpuPressureLevel: PressureLevel
+    let gpuMemoryUsedBytes: UInt64?
+    let gpuMemoryRecommendedBytes: UInt64?
+    let gpuMemoryPressure: Double?
     let fans: [FanSample]
 
     let networkDownloadPerSecond: Double
@@ -167,6 +170,12 @@ extension SystemSample {
         gpuUsage = try values.decodeIfPresent(Double.self, forKey: .gpuUsage)
         gpuPressure = try values.decodeIfPresent(Double.self, forKey: .gpuPressure)
         gpuPressureLevel = try values.decode(PressureLevel.self, forKey: .gpuPressureLevel)
+        gpuMemoryUsedBytes = try values.decodeIfPresent(UInt64.self, forKey: .gpuMemoryUsedBytes)
+        gpuMemoryRecommendedBytes = try values.decodeIfPresent(
+            UInt64.self,
+            forKey: .gpuMemoryRecommendedBytes
+        )
+        gpuMemoryPressure = try values.decodeIfPresent(Double.self, forKey: .gpuMemoryPressure)
         fans = try values.decode([FanSample].self, forKey: .fans)
         networkDownloadPerSecond = try values.decode(Double.self, forKey: .networkDownloadPerSecond)
         networkUploadPerSecond = try values.decode(Double.self, forKey: .networkUploadPerSecond)
@@ -209,6 +218,9 @@ extension SystemSample {
         case gpuUsage
         case gpuPressure
         case gpuPressureLevel
+        case gpuMemoryUsedBytes
+        case gpuMemoryRecommendedBytes
+        case gpuMemoryPressure
         case fans
         case networkDownloadPerSecond
         case networkUploadPerSecond
@@ -250,6 +262,9 @@ extension SystemSample {
         gpuUsage: nil,
         gpuPressure: nil,
         gpuPressureLevel: .unavailable,
+        gpuMemoryUsedBytes: nil,
+        gpuMemoryRecommendedBytes: nil,
+        gpuMemoryPressure: nil,
         fans: [],
         networkDownloadPerSecond: 0,
         networkUploadPerSecond: 0,

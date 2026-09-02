@@ -342,6 +342,9 @@ final class SearoomTests: XCTestCase {
         object.removeValue(forKey: "compressedMemoryBytes")
         object.removeValue(forKey: "compressionBytesPerSecond")
         object.removeValue(forKey: "decompressionBytesPerSecond")
+        object.removeValue(forKey: "gpuMemoryUsedBytes")
+        object.removeValue(forKey: "gpuMemoryRecommendedBytes")
+        object.removeValue(forKey: "gpuMemoryPressure")
 
         let legacyData = try JSONSerialization.data(withJSONObject: object)
         let decoded = try JSONDecoder().decode(SystemSample.self, from: legacyData)
@@ -352,6 +355,9 @@ final class SearoomTests: XCTestCase {
         XCTAssertEqual(decoded.compressedMemoryBytes, 0)
         XCTAssertEqual(decoded.compressionBytesPerSecond, 0)
         XCTAssertEqual(decoded.decompressionBytesPerSecond, 0)
+        XCTAssertNil(decoded.gpuMemoryUsedBytes)
+        XCTAssertNil(decoded.gpuMemoryRecommendedBytes)
+        XCTAssertNil(decoded.gpuMemoryPressure)
     }
 
     func testBatteryTemperatureNormalization() {
@@ -362,6 +368,62 @@ final class SearoomTests: XCTestCase {
         XCTAssertNil(BatteryCollector.normalizeTemperature(.nan))
         XCTAssertNil(BatteryCollector.normalizeTemperature(10_001))
         XCTAssertNil(BatteryCollector.normalizeTemperature(50_000))
+    }
+
+    func testGPUMemoryParsingBounds() {
+        let physicalMemory = UInt64(48 * 1_073_741_824)
+        XCTAssertEqual(
+            GPUCollector.parseUsedSystemMemory(
+                ["In use system memory": 631_635_968],
+                physicalMemory: physicalMemory
+            ),
+            631_635_968
+        )
+        XCTAssertNil(GPUCollector.parseUsedSystemMemory([:], physicalMemory: physicalMemory))
+        XCTAssertNil(GPUCollector.parseUsedSystemMemory(
+            ["In use system memory": 0],
+            physicalMemory: physicalMemory
+        ))
+        // Some non-Apple drivers publish the same key in megabytes; values
+        // beyond physical memory are rejected instead of trusted.
+        XCTAssertNil(GPUCollector.parseUsedSystemMemory(
+            ["In use system memory": 999 * 1_073_741_824],
+            physicalMemory: physicalMemory
+        ))
+        XCTAssertEqual(
+            GPUCollector.workingSetRatio(used: 9, recommended: 10),
+            0.9,
+            accuracy: 0.0001
+        )
+        XCTAssertNil(GPUCollector.workingSetRatio(used: nil, recommended: 10))
+        XCTAssertNil(GPUCollector.workingSetRatio(used: 9, recommended: nil))
+        XCTAssertNil(GPUCollector.workingSetRatio(used: 9, recommended: 0))
+        XCTAssertEqual(
+            GPUCollector.workingSetRatio(used: 20, recommended: 10),
+            1.0,
+            accuracy: 0.0001,
+            "the ratio clamps at the top of the closed range"
+        )
+    }
+
+    func testGpuPressureFoldsWorkingSetRatio() {
+        XCTAssertEqual(GPUCollector.combinedPressure(usage: 0.2, workingSetRatio: nil), 0.2)
+        XCTAssertEqual(GPUCollector.combinedPressure(usage: 0.2, workingSetRatio: 0.1), 0.2)
+        XCTAssertEqual(
+            GPUCollector.combinedPressure(usage: 0.2, workingSetRatio: 0.9),
+            0.9,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            PressureLevel.from(utilization: GPUCollector.combinedPressure(usage: 0.2, workingSetRatio: 0.9)),
+            .constrained
+        )
+        XCTAssertEqual(
+            GPUCollector.combinedPressure(usage: 0.5, workingSetRatio: 2.0),
+            1.0,
+            accuracy: 0.0001,
+            "a combined pressure stays within the closed range"
+        )
     }
 
     func testSMCSensorDecoderRegression() {
@@ -383,6 +445,15 @@ final class SearoomTests: XCTestCase {
         XCTAssertLessThanOrEqual(sample.compressedMemoryBytes, sample.memoryUsed)
         XCTAssertGreaterThanOrEqual(sample.compressionBytesPerSecond, 0)
         XCTAssertGreaterThanOrEqual(sample.decompressionBytesPerSecond, 0)
+        if let gpuMemoryUsed = sample.gpuMemoryUsedBytes {
+            XCTAssertLessThanOrEqual(gpuMemoryUsed, sample.memoryTotal)
+        }
+        if let gpuMemoryRecommended = sample.gpuMemoryRecommendedBytes {
+            XCTAssertGreaterThan(gpuMemoryRecommended, 0)
+        }
+        if let gpuMemoryPressure = sample.gpuMemoryPressure {
+            XCTAssertTrue((0...1).contains(gpuMemoryPressure))
+        }
         XCTAssertGreaterThan(sample.processMemoryBytes, 0)
     }
 

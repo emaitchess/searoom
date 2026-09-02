@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import IOKit
 import IOKit.ps
+import Metal
 
 final class ThermalCollector {
     static func sensorDecoderSelfTest() -> Bool {
@@ -42,16 +43,36 @@ final class GPUCollector {
     private var services: [io_registry_entry_t] = []
     private let clock = ContinuousClock()
     private var nextDiscovery: ContinuousClock.Instant?
+    private let physicalMemory = ProcessInfo.processInfo.physicalMemory
+
+    // The working-set budget comes from the public Metal API rather than the
+    // undocumented "Recommended Max Working Set Size" registry key, which is
+    // absent on Apple Silicon (verified on an M5 Pro's AGXAccelerator). Resolved
+    // lazily on the collector's serial queue; a nil or zero budget leaves the
+    // working-set ratio unavailable without affecting GPU utilization.
+    private lazy var recommendedWorkingSetBytes: UInt64? = {
+        guard let device = MTLCreateSystemDefaultDevice() else { return nil }
+        let budget = device.recommendedMaxWorkingSetSize
+        return budget > 0 ? budget : nil
+    }()
 
     deinit { releaseServices() }
 
-    func read() -> (usage: Double?, pressure: Double?, level: PressureLevel) {
+    func read() -> (
+        usage: Double?,
+        pressure: Double?,
+        level: PressureLevel,
+        memoryUsedBytes: UInt64?,
+        memoryRecommendedBytes: UInt64?,
+        memoryPressure: Double?
+    ) {
         if services.isEmpty, nextDiscovery.map({ clock.now >= $0 }) ?? true {
             discoverServices()
         }
-        guard !services.isEmpty else { return (nil, nil, .unavailable) }
+        guard !services.isEmpty else { return (nil, nil, .unavailable, nil, nil, nil) }
 
         var maximumUsage: Double?
+        var maximumUsedMemory: UInt64?
         for service in services {
             guard let statistics = dictionaryProperty(
                 named: "PerformanceStatistics",
@@ -63,15 +84,59 @@ final class GPUCollector {
                 let value = raw > 1 ? raw / 100 : raw
                 maximumUsage = max(maximumUsage ?? value, value)
             }
+            if let used = Self.parseUsedSystemMemory(
+                statistics,
+                physicalMemory: physicalMemory
+            ) {
+                maximumUsedMemory = max(maximumUsedMemory ?? used, used)
+            }
         }
 
         guard let usage = maximumUsage.map({ min(1, max(0, $0)) }) else {
             releaseServices()
             nextDiscovery = clock.now.advanced(by: .seconds(60))
-            return (nil, nil, .unavailable)
+            return (nil, nil, .unavailable, nil, nil, nil)
         }
-        let pressure = usage
-        return (usage, pressure, PressureLevel.from(utilization: pressure))
+        let memoryPressure = Self.workingSetRatio(
+            used: maximumUsedMemory,
+            recommended: recommendedWorkingSetBytes
+        )
+        let pressure = Self.combinedPressure(usage: usage, workingSetRatio: memoryPressure)
+        return (
+            usage,
+            pressure,
+            PressureLevel.from(utilization: pressure),
+            maximumUsedMemory,
+            recommendedWorkingSetBytes,
+            memoryPressure
+        )
+    }
+
+    // "In use system memory" is a read-only, undocumented IORegistry value that
+    // Apple GPU drivers publish in bytes; verified on an Apple M5 Pro
+    // (AGXAccelerator, macOS 27.0) reporting 631,635,968. Some non-Apple
+    // drivers publish the same key in megabytes, so values that exceed
+    // physical memory are rejected as unavailable rather than trusted.
+    static func parseUsedSystemMemory(
+        _ statistics: [String: Any],
+        physicalMemory: UInt64
+    ) -> UInt64? {
+        guard let number = statistics["In use system memory"] as? NSNumber else { return nil }
+        let used = number.uint64Value
+        guard used > 0, used <= physicalMemory else { return nil }
+        return used
+    }
+
+    static func workingSetRatio(used: UInt64?, recommended: UInt64?) -> Double? {
+        guard let used, let recommended, recommended > 0 else { return nil }
+        return min(1, Double(used) / Double(recommended))
+    }
+
+    // GPU pressure combines utilization with the Metal-recommended working-set
+    // ratio, mirroring how CPU pressure combines usage with normalized load.
+    // It is a derived signal, not an Apple pressure API.
+    static func combinedPressure(usage: Double, workingSetRatio: Double?) -> Double {
+        min(1, max(usage, workingSetRatio ?? 0))
     }
 
     private func discoverServices() {

@@ -56,6 +56,35 @@ enum SelfTest {
             abs((BatteryCollector.normalizeTemperature(2_759) ?? 0) - 27.59) < 0.001,
             "battery temperature scaling"
         )
+        check(
+            GPUCollector.parseUsedSystemMemory(
+                ["In use system memory": 631_635_968],
+                physicalMemory: 48 * 1_073_741_824
+            ) == 631_635_968,
+            "GPU working-set memory parsing"
+        )
+        check(
+            GPUCollector.parseUsedSystemMemory(
+                ["In use system memory": 0],
+                physicalMemory: 48 * 1_073_741_824
+            ) == nil,
+            "GPU working-set memory rejects zero"
+        )
+        check(
+            GPUCollector.parseUsedSystemMemory(
+                ["In use system memory": 999_999_999_999_999],
+                physicalMemory: 48 * 1_073_741_824
+            ) == nil,
+            "GPU working-set memory rejects out-of-bounds values"
+        )
+        check(
+            abs((GPUCollector.workingSetRatio(used: 9, recommended: 10) ?? 0) - 0.9) < 0.0001,
+            "GPU working-set ratio"
+        )
+        check(
+            abs(GPUCollector.combinedPressure(usage: 0.2, workingSetRatio: 0.9) - 0.9) < 0.0001,
+            "GPU pressure folds the working-set ratio"
+        )
         let legacySettings = Data("{\"sampleInterval\":5}".utf8)
         let decodedSettings = try? JSONDecoder().decode(AppSettings.self, from: legacySettings)
         check(decodedSettings?.historyMinutes == 30, "settings migration")
@@ -131,6 +160,9 @@ enum SelfTest {
             legacySample.removeValue(forKey: "compressedMemoryBytes")
             legacySample.removeValue(forKey: "compressionBytesPerSecond")
             legacySample.removeValue(forKey: "decompressionBytesPerSecond")
+            legacySample.removeValue(forKey: "gpuMemoryUsedBytes")
+            legacySample.removeValue(forKey: "gpuMemoryRecommendedBytes")
+            legacySample.removeValue(forKey: "gpuMemoryPressure")
             let legacySampleData = try? JSONSerialization.data(withJSONObject: legacySample)
             let decodedSample = legacySampleData.flatMap {
                 try? JSONDecoder().decode(SystemSample.self, from: $0)
@@ -141,6 +173,8 @@ enum SelfTest {
             check(decodedSample?.compressedMemoryBytes == 0, "sample compressed memory migration")
             check(decodedSample?.compressionBytesPerSecond == 0, "sample compression rate migration")
             check(decodedSample?.decompressionBytesPerSecond == 0, "sample decompression rate migration")
+            check(decodedSample?.gpuMemoryUsedBytes == nil, "sample GPU working-set migration")
+            check(decodedSample?.gpuMemoryPressure == nil, "sample GPU memory pressure migration")
         } else {
             failures.append("sample migration fixture")
         }
@@ -155,6 +189,12 @@ enum SelfTest {
         check(sample.compressedMemoryBytes <= sample.memoryUsed, "bounded compressed memory")
         check(sample.compressionBytesPerSecond >= 0, "nonnegative compression rate")
         check(sample.decompressionBytesPerSecond >= 0, "nonnegative decompression rate")
+        if let gpuMemoryUsed = sample.gpuMemoryUsedBytes {
+            check(gpuMemoryUsed <= sample.memoryTotal, "bounded GPU working set")
+        }
+        if let gpuMemoryPressure = sample.gpuMemoryPressure {
+            check((0...1).contains(gpuMemoryPressure), "bounded GPU memory pressure")
+        }
         check((0...1).contains(sample.cpuUsage), "bounded CPU")
         check(sample.processMemoryBytes > 0, "self memory")
 

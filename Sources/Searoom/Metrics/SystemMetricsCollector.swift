@@ -16,8 +16,14 @@ final class SystemMetricsCollector {
     private var cachedDisk: (read: Double, write: Double) = (0, 0)
     private var cachedThermal: (temperature: Double?, pressureLevel: PressureLevel, fans: [FanSample]) =
         (nil, .unavailable, [])
-    private var cachedGPU: (usage: Double?, pressure: Double?, level: PressureLevel) =
-        (nil, nil, .unavailable)
+    private var cachedGPU: (
+        usage: Double?,
+        pressure: Double?,
+        level: PressureLevel,
+        memoryUsedBytes: UInt64?,
+        memoryRecommendedBytes: UInt64?,
+        memoryPressure: Double?
+    ) = (nil, nil, .unavailable, nil, nil, nil)
 
     func collect() -> SystemSample {
         let now = Date.now
@@ -76,6 +82,9 @@ final class SystemMetricsCollector {
             gpuUsage: gpuReading.usage,
             gpuPressure: gpuReading.pressure,
             gpuPressureLevel: gpuReading.level,
+            gpuMemoryUsedBytes: gpuReading.memoryUsedBytes,
+            gpuMemoryRecommendedBytes: gpuReading.memoryRecommendedBytes,
+            gpuMemoryPressure: gpuReading.memoryPressure,
             fans: thermalReading.fans,
             networkDownloadPerSecond: networkReading.download,
             networkUploadPerSecond: networkReading.upload,

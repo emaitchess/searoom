@@ -102,7 +102,7 @@ All fractional utilization and pressure values use the closed range `0...1`. Cla
 - Memory used is active + wired + compressed memory, capped at physical memory.
 - Memory available includes reclaimable pages; it is not merely the VM free-page count.
 - Memory pressure combines the macOS pressure level, when available, with the working-set ratio used by trends.
-- GPU pressure equals GPU utilization only when a supported utilization key exists. Otherwise both remain unavailable.
+- GPU pressure is derived, not an Apple pressure API: the greater of GPU utilization and the ratio of in-use GPU system memory to the Metal-recommended working-set size. Utilization and in-use memory come from read-only IORegistry values; the working-set budget comes from the public Metal API. When a supported utilization key is absent, utilization, pressure, working-set memory, and working-set pressure all remain unavailable.
 - Thermal pressure comes from `ProcessInfo.thermalState`; a battery-temperature fallback is not CPU/package temperature and must retain its source label.
 - Temperature selection prefers a validated CPU/package SMC reading. If that is unavailable, `BatteryCollector` may use the AppleSmartBattery pack sensor; dashboard detail and compact/menu-bar output must identify it as `BAT`.
 - `kIOPSTemperatureKey` values may already be Celsius, while AppleSmartBattery registry values can use hundredths of a degree Celsius (`2759` means `27.59°C`). Keep this normalization in `BatteryCollector.normalizeTemperature`; do not restore the former deci-Kelvin conversion.

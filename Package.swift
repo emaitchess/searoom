@@ -17,7 +17,8 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("IOKit"),
-                .linkedFramework("Carbon")
+                .linkedFramework("Carbon"),
+                .linkedFramework("Metal")
             ]
         ),
         .target(
