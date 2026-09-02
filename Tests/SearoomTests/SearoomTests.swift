@@ -323,6 +323,12 @@ final class SearoomTests: XCTestCase {
 
         state.cycle(.memory)
         XCTAssertEqual(state.byteUnit(for: .memory), .gigabytes)
+
+        state.cycle(.compressedMemory)
+        state.cycle(.compression)
+        XCTAssertEqual(state.byteUnit(for: .compressedMemory), .megabytes)
+        XCTAssertEqual(state.rateUnit(for: .compression), .bytes)
+        XCTAssertEqual(state.rateUnit(for: .swapIO), .adaptive)
     }
 
     func testOlderSampleReceivesDefaultsForNewMetrics() throws {
@@ -333,6 +339,9 @@ final class SearoomTests: XCTestCase {
         object.removeValue(forKey: "swapInPerSecond")
         object.removeValue(forKey: "swapOutPerSecond")
         object.removeValue(forKey: "isLowPowerModeEnabled")
+        object.removeValue(forKey: "compressedMemoryBytes")
+        object.removeValue(forKey: "compressionBytesPerSecond")
+        object.removeValue(forKey: "decompressionBytesPerSecond")
 
         let legacyData = try JSONSerialization.data(withJSONObject: object)
         let decoded = try JSONDecoder().decode(SystemSample.self, from: legacyData)
@@ -340,6 +349,9 @@ final class SearoomTests: XCTestCase {
         XCTAssertEqual(decoded.swapInPerSecond, 0)
         XCTAssertEqual(decoded.swapOutPerSecond, 0)
         XCTAssertFalse(decoded.isLowPowerModeEnabled)
+        XCTAssertEqual(decoded.compressedMemoryBytes, 0)
+        XCTAssertEqual(decoded.compressionBytesPerSecond, 0)
+        XCTAssertEqual(decoded.decompressionBytesPerSecond, 0)
     }
 
     func testBatteryTemperatureNormalization() {
@@ -368,6 +380,9 @@ final class SearoomTests: XCTestCase {
         XCTAssertTrue((0...1).contains(sample.memoryPressure))
         XCTAssertGreaterThanOrEqual(sample.swapInPerSecond, 0)
         XCTAssertGreaterThanOrEqual(sample.swapOutPerSecond, 0)
+        XCTAssertLessThanOrEqual(sample.compressedMemoryBytes, sample.memoryUsed)
+        XCTAssertGreaterThanOrEqual(sample.compressionBytesPerSecond, 0)
+        XCTAssertGreaterThanOrEqual(sample.decompressionBytesPerSecond, 0)
         XCTAssertGreaterThan(sample.processMemoryBytes, 0)
     }
 

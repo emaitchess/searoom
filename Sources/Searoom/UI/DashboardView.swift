@@ -25,7 +25,7 @@ final class DashboardView: NSView {
 
     init(model: AppModel) {
         self.model = model
-        super.init(frame: NSRect(x: 0, y: 0, width: 430, height: 925))
+        super.init(frame: NSRect(x: 0, y: 0, width: 430, height: 952))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Searoom system dashboard")
@@ -103,9 +103,9 @@ final class DashboardView: NSView {
         let thermalRect = NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158)
         let networkRect = NSRect(x: margin, y: 418, width: bounds.width - margin * 2, height: 122)
         let infoRect = NSRect(x: margin, y: 550, width: bounds.width - margin * 2, height: 88)
-        let extrasRect = NSRect(x: margin, y: 648, width: bounds.width - margin * 2, height: 153)
-        let selfRect = NSRect(x: margin, y: 811, width: bounds.width - margin * 2, height: 42)
-        let footerRect = NSRect(x: 0, y: 867, width: bounds.width, height: 38)
+        let extrasRect = NSRect(x: margin, y: 648, width: bounds.width - margin * 2, height: 180)
+        let selfRect = NSRect(x: margin, y: 838, width: bounds.width - margin * 2, height: 42)
+        let footerRect = NSRect(x: 0, y: 894, width: bounds.width, height: 38)
         graphRegions = [
             GraphRegion(metric: .cpu, rect: graphRect(for: cpuRect)),
             GraphRegion(metric: .memory, rect: graphRect(for: memoryRect)),
@@ -149,7 +149,8 @@ final class DashboardView: NSView {
                 unit: model.dashboardUnitState.byteUnit(for: .memory)
             ),
             detail: "FREE \(MetricFormat.compactBytes(sample.memoryAvailable, unit: model.dashboardUnitState.byteUnit(for: .memory)))"
-                + " · SWAP \(MetricFormat.compactBytes(sample.swapUsed, unit: model.dashboardUnitState.byteUnit(for: .memory)))",
+                + " · SWAP \(MetricFormat.compactBytes(sample.swapUsed, unit: model.dashboardUnitState.byteUnit(for: .memory)))"
+                + " · COMP \(MetricFormat.compactBytes(sample.compressedMemoryBytes, unit: model.dashboardUnitState.byteUnit(for: .memory)))",
             pressure: sample.memoryPressureLevel,
             values: graphs?.memory ?? [],
             drawsGraph: needsToDraw(graphRect(for: memoryRect)),
@@ -211,7 +212,7 @@ final class DashboardView: NSView {
             sample: sample,
             theme: theme
         ) }
-        if needsToDraw(footerRect) { drawFooter(y: 867, theme: theme) }
+        if needsToDraw(footerRect) { drawFooter(y: 894, theme: theme) }
         if needsGraphs { updateHoverOverlays() }
     }
 
@@ -442,6 +443,10 @@ final class DashboardView: NSView {
         let cacheUnit = model.dashboardUnitState.byteUnit(for: .cache)
         let swapUnit = model.dashboardUnitState.byteUnit(for: .swap)
         let swapIOUnit = model.dashboardUnitState.rateUnit(for: .swapIO)
+        let compressedUnit = model.dashboardUnitState.byteUnit(for: .compressedMemory)
+        let compressionUnit = model.dashboardUnitState.rateUnit(for: .compression)
+        let compressionRates = "\(MetricFormat.rate(sample.compressionBytesPerSecond, unit: compressionUnit))"
+            + " · \(MetricFormat.rate(sample.decompressionBytesPerSecond, unit: compressionUnit))"
         let rows = [
             (
                 "DISK READ",
@@ -460,6 +465,12 @@ final class DashboardView: NSView {
                 MetricFormat.rate(sample.swapInPerSecond, unit: swapIOUnit),
                 "SWAP OUT",
                 MetricFormat.rate(sample.swapOutPerSecond, unit: swapIOUnit)
+            ),
+            (
+                "COMPRESSED",
+                MetricFormat.bytes(sample.compressedMemoryBytes, unit: compressedUnit),
+                "COMP RATE",
+                compressionRates
             ),
             ("PROCESSES", "\(sample.processCount)", "POWER", power)
         ]
@@ -659,6 +670,8 @@ final class DashboardView: NSView {
         let cacheUnit = model.dashboardUnitState.byteUnit(for: .cache)
         let swapUnit = model.dashboardUnitState.byteUnit(for: .swap)
         let swapIOUnit = model.dashboardUnitState.rateUnit(for: .swapIO)
+        let compressedUnit = model.dashboardUnitState.byteUnit(for: .compressedMemory)
+        let compressionUnit = model.dashboardUnitState.rateUnit(for: .compression)
         let processMemoryUnit = model.dashboardUnitState.byteUnit(for: .processMemory)
         let fanText = MetricFormat.fanActivity(sample.fans)
         let thermalDetail = sample.fans.isEmpty
@@ -674,6 +687,7 @@ final class DashboardView: NSView {
             memory: "\(MetricFormat.bytePair(sample.memoryUsed, sample.memoryTotal, unit: memoryUnit))"
                 + "-\(MetricFormat.compactBytes(sample.memoryAvailable, unit: memoryUnit))"
                 + "-\(MetricFormat.compactBytes(sample.swapUsed, unit: memoryUnit))"
+                + "-\(MetricFormat.compactBytes(sample.compressedMemoryBytes, unit: memoryUnit))"
                 + "-\(sample.memoryPressureLevel.rawValue)",
             gpu: "\(sample.gpuUsage.map(MetricFormat.percent) ?? "N/A")-\(sample.gpuPressureLevel.rawValue)",
             thermal: "\(MetricFormat.temperature(sample.temperatureCelsius, unit: temperatureUnit))-\(thermalDetail)-\(sample.thermalPressureLevel.rawValue)",
@@ -686,6 +700,9 @@ final class DashboardView: NSView {
                 + "-\(MetricFormat.bytes(sample.swapUsed, unit: swapUnit))"
                 + "-\(MetricFormat.rate(sample.swapInPerSecond, unit: swapIOUnit))"
                 + "-\(MetricFormat.rate(sample.swapOutPerSecond, unit: swapIOUnit))"
+                + "-\(MetricFormat.bytes(sample.compressedMemoryBytes, unit: compressedUnit))"
+                + "-\(MetricFormat.rate(sample.compressionBytesPerSecond, unit: compressionUnit))"
+                + "-\(MetricFormat.rate(sample.decompressionBytesPerSecond, unit: compressionUnit))"
                 + "-\(sample.processCount)-\(power)",
             ownProcess: "\(MetricFormat.unboundedPercent(sample.processCPUUsage))"
                 + "-\(MetricFormat.compactBytes(sample.processMemoryBytes, unit: processMemoryUnit))"
@@ -726,10 +743,10 @@ final class DashboardView: NSView {
             invalidateVisible(NSRect(x: margin + 2, y: 555, width: bounds.width - margin * 2 - 4, height: 78))
         }
         if previous.extras != current.extras {
-            invalidateVisible(NSRect(x: margin + 2, y: 653, width: bounds.width - margin * 2 - 4, height: 143))
+            invalidateVisible(NSRect(x: margin + 2, y: 653, width: bounds.width - margin * 2 - 4, height: 170))
         }
         if previous.ownProcess != current.ownProcess {
-            invalidateVisible(NSRect(x: margin + 7, y: 817, width: bounds.width - margin * 2 - 9, height: 31))
+            invalidateVisible(NSRect(x: margin + 7, y: 844, width: bounds.width - margin * 2 - 9, height: 31))
         }
 
         let cards = [cpu, memory, gpu, thermal]
@@ -814,6 +831,12 @@ final class DashboardView: NSView {
             width: extrasWidth,
             height: 26
         )
+        let compressionRowRect = NSRect(
+            x: extrasRect.minX + 2,
+            y: extrasRect.minY + 109,
+            width: extrasWidth,
+            height: 26
+        )
         let selfFont = SearoomFont.metric(10.5)
         let selfPrefix = "SEAROOM · CPU \(MetricFormat.unboundedPercent(sample.processCPUUsage)) · "
         let processMemoryValue = MetricFormat.compactBytes(
@@ -880,6 +903,36 @@ final class DashboardView: NSView {
                 )
             ),
             UnitRegion(target: .swapIO, hitRect: swapIORect, displayRect: swapIORect),
+            UnitRegion(
+                target: .compressedMemory,
+                hitRect: NSRect(
+                    x: compressionRowRect.minX,
+                    y: compressionRowRect.minY,
+                    width: compressionRowRect.width / 2,
+                    height: compressionRowRect.height
+                ),
+                displayRect: NSRect(
+                    x: compressionRowRect.minX,
+                    y: compressionRowRect.minY,
+                    width: compressionRowRect.width / 2,
+                    height: compressionRowRect.height
+                )
+            ),
+            UnitRegion(
+                target: .compression,
+                hitRect: NSRect(
+                    x: compressionRowRect.midX,
+                    y: compressionRowRect.minY,
+                    width: compressionRowRect.width / 2,
+                    height: compressionRowRect.height
+                ),
+                displayRect: NSRect(
+                    x: compressionRowRect.midX,
+                    y: compressionRowRect.minY,
+                    width: compressionRowRect.width / 2,
+                    height: compressionRowRect.height
+                )
+            ),
             UnitRegion(
                 target: .processMemory,
                 hitRect: processMemoryRect,

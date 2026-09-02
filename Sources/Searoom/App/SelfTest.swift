@@ -128,6 +128,9 @@ enum SelfTest {
             legacySample.removeValue(forKey: "swapInPerSecond")
             legacySample.removeValue(forKey: "swapOutPerSecond")
             legacySample.removeValue(forKey: "isLowPowerModeEnabled")
+            legacySample.removeValue(forKey: "compressedMemoryBytes")
+            legacySample.removeValue(forKey: "compressionBytesPerSecond")
+            legacySample.removeValue(forKey: "decompressionBytesPerSecond")
             let legacySampleData = try? JSONSerialization.data(withJSONObject: legacySample)
             let decodedSample = legacySampleData.flatMap {
                 try? JSONDecoder().decode(SystemSample.self, from: $0)
@@ -135,6 +138,9 @@ enum SelfTest {
             check(decodedSample?.swapInPerSecond == 0, "sample swap input migration")
             check(decodedSample?.swapOutPerSecond == 0, "sample swap output migration")
             check(decodedSample?.isLowPowerModeEnabled == false, "sample power migration")
+            check(decodedSample?.compressedMemoryBytes == 0, "sample compressed memory migration")
+            check(decodedSample?.compressionBytesPerSecond == 0, "sample compression rate migration")
+            check(decodedSample?.decompressionBytesPerSecond == 0, "sample decompression rate migration")
         } else {
             failures.append("sample migration fixture")
         }
@@ -146,6 +152,9 @@ enum SelfTest {
         check(sample.memoryUsed <= sample.memoryTotal, "bounded memory")
         check(sample.swapInPerSecond >= 0, "nonnegative swap input")
         check(sample.swapOutPerSecond >= 0, "nonnegative swap output")
+        check(sample.compressedMemoryBytes <= sample.memoryUsed, "bounded compressed memory")
+        check(sample.compressionBytesPerSecond >= 0, "nonnegative compression rate")
+        check(sample.decompressionBytesPerSecond >= 0, "nonnegative decompression rate")
         check((0...1).contains(sample.cpuUsage), "bounded CPU")
         check(sample.processMemoryBytes > 0, "self memory")
 

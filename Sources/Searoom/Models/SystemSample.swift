@@ -95,6 +95,9 @@ struct SystemSample: Codable, Equatable, Sendable {
     let swapUsed: UInt64
     let swapInPerSecond: Double
     let swapOutPerSecond: Double
+    let compressedMemoryBytes: UInt64
+    let compressionBytesPerSecond: Double
+    let decompressionBytesPerSecond: Double
     let memoryPressure: Double
     let memoryPressureLevel: PressureLevel
 
@@ -144,6 +147,18 @@ extension SystemSample {
         swapUsed = try values.decode(UInt64.self, forKey: .swapUsed)
         swapInPerSecond = try values.decodeIfPresent(Double.self, forKey: .swapInPerSecond) ?? 0
         swapOutPerSecond = try values.decodeIfPresent(Double.self, forKey: .swapOutPerSecond) ?? 0
+        compressedMemoryBytes = try values.decodeIfPresent(
+            UInt64.self,
+            forKey: .compressedMemoryBytes
+        ) ?? 0
+        compressionBytesPerSecond = try values.decodeIfPresent(
+            Double.self,
+            forKey: .compressionBytesPerSecond
+        ) ?? 0
+        decompressionBytesPerSecond = try values.decodeIfPresent(
+            Double.self,
+            forKey: .decompressionBytesPerSecond
+        ) ?? 0
         memoryPressure = try values.decode(Double.self, forKey: .memoryPressure)
         memoryPressureLevel = try values.decode(PressureLevel.self, forKey: .memoryPressureLevel)
         temperatureCelsius = try values.decodeIfPresent(Double.self, forKey: .temperatureCelsius)
@@ -183,6 +198,9 @@ extension SystemSample {
         case swapUsed
         case swapInPerSecond
         case swapOutPerSecond
+        case compressedMemoryBytes
+        case compressionBytesPerSecond
+        case decompressionBytesPerSecond
         case memoryPressure
         case memoryPressureLevel
         case temperatureCelsius
@@ -221,6 +239,9 @@ extension SystemSample {
         swapUsed: 0,
         swapInPerSecond: 0,
         swapOutPerSecond: 0,
+        compressedMemoryBytes: 0,
+        compressionBytesPerSecond: 0,
+        decompressionBytesPerSecond: 0,
         memoryPressure: 0,
         memoryPressureLevel: .unavailable,
         temperatureCelsius: nil,

@@ -5,6 +5,9 @@ final class MemoryCollector {
     private var previousSwapInPages: UInt64?
     private var previousSwapOutPages: UInt64?
     private var previousSwapTime: ContinuousClock.Instant?
+    private var previousCompressions: UInt64?
+    private var previousDecompressions: UInt64?
+    private var previousCompressionTime: ContinuousClock.Instant?
     private let clock = ContinuousClock()
     private let total = ProcessInfo.processInfo.physicalMemory
     private let pageBytes: UInt64 = {
@@ -18,9 +21,12 @@ final class MemoryCollector {
         let used: UInt64
         let available: UInt64
         let cached: UInt64
+        let compressedBytes: UInt64
         let swapUsed: UInt64
         let swapInPerSecond: Double
         let swapOutPerSecond: Double
+        let compressionBytesPerSecond: Double
+        let decompressionBytesPerSecond: Double
         let pressure: Double
         let pressureLevel: PressureLevel
     }
@@ -42,9 +48,12 @@ final class MemoryCollector {
                 used: 0,
                 available: total,
                 cached: 0,
+                compressedBytes: 0,
                 swapUsed: readSwapUsed(),
                 swapInPerSecond: 0,
                 swapOutPerSecond: 0,
+                compressionBytesPerSecond: 0,
+                decompressionBytesPerSecond: 0,
                 pressure: 0,
                 pressureLevel: .unavailable
             )
@@ -68,6 +77,11 @@ final class MemoryCollector {
             swapOutPages: UInt64(statistics.swapouts),
             pageBytes: pageBytes
         )
+        let compressionRates = readCompressionRates(
+            compressions: UInt64(statistics.compressions),
+            decompressions: UInt64(statistics.decompressions),
+            pageBytes: pageBytes
+        )
         let utilization = total > 0 ? Double(used) / Double(total) : 0
 
         let systemLevel = readSystemPressureLevel()
@@ -85,9 +99,12 @@ final class MemoryCollector {
             used: used,
             available: available,
             cached: cached,
+            compressedBytes: compressed,
             swapUsed: swapUsed,
             swapInPerSecond: swapRates.input,
             swapOutPerSecond: swapRates.output,
+            compressionBytesPerSecond: compressionRates.input,
+            decompressionBytesPerSecond: compressionRates.output,
             pressure: min(1, max(utilization, floor)),
             pressureLevel: level
         )
@@ -124,6 +141,40 @@ final class MemoryCollector {
         return (
             input.isFinite ? max(0, input) : 0,
             output.isFinite ? max(0, output) : 0
+        )
+    }
+
+    private func readCompressionRates(
+        compressions: UInt64,
+        decompressions: UInt64,
+        pageBytes: UInt64
+    ) -> (input: Double, output: Double) {
+        let now = clock.now
+        defer {
+            previousCompressions = compressions
+            previousDecompressions = decompressions
+            previousCompressionTime = now
+        }
+        guard let previousCompressions,
+              let previousDecompressions,
+              let previousCompressionTime else { return (0, 0) }
+
+        let elapsed = previousCompressionTime.duration(to: now)
+        let duration = Double(elapsed.components.seconds)
+            + Double(elapsed.components.attoseconds) / 1e18
+        guard duration > 0 else { return (0, 0) }
+
+        let compressedPages = compressions >= previousCompressions
+            ? compressions - previousCompressions
+            : 0
+        let decompressedPages = decompressions >= previousDecompressions
+            ? decompressions - previousDecompressions
+            : 0
+        let compression = Double(compressedPages) * Double(pageBytes) / duration
+        let decompression = Double(decompressedPages) * Double(pageBytes) / duration
+        return (
+            compression.isFinite ? max(0, compression) : 0,
+            decompression.isFinite ? max(0, decompression) : 0
         )
     }
 

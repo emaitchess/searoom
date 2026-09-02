@@ -8,6 +8,8 @@ enum DashboardUnitTarget: Hashable, Sendable {
     case cache
     case swap
     case swapIO
+    case compressedMemory
+    case compression
     case processMemory
 
     var accessibilityName: String {
@@ -19,17 +21,19 @@ enum DashboardUnitTarget: Hashable, Sendable {
         case .cache: "cache"
         case .swap: "swap"
         case .swapIO: "swap throughput"
+        case .compressedMemory: "compressed memory"
+        case .compression: "memory compression"
         case .processMemory: "Searoom memory"
         }
     }
 
     fileprivate var family: UnitFamily {
         switch self {
-        case .memory, .cache, .swap, .processMemory:
+        case .memory, .cache, .swap, .compressedMemory, .processMemory:
             .bytes
         case .temperature:
             .temperature
-        case .network, .diskIO, .swapIO:
+        case .network, .diskIO, .swapIO, .compression:
             .rate
         }
     }
