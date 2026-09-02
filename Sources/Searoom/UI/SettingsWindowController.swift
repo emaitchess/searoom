@@ -2,7 +2,7 @@ import AppKit
 import ServiceManagement
 
 @MainActor
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private let model: AppModel
     private let shortcutManager: GlobalShortcutManager
     private let presetPopUp = NSPopUpButton()
@@ -144,13 +144,11 @@ final class SettingsWindowController: NSWindowController {
         storageControls.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(storageControls)
 
-        let note = NSTextField(wrappingLabelWithString:
-            "CPU pressure is a derived saturation signal. Temperature, fan and GPU readings are best-effort because macOS does not expose universal public APIs for them. Unsupported sensors remain clearly unavailable. All history stays in ~/Library/Application Support/Searoom."
-        )
-        note.font = SearoomFont.system(11)
-        note.textColor = .secondaryLabelColor
-        note.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(note)
+        let noteWidth = (window.contentView?.bounds.width ?? 470) - 48
+        let historyNote = makeHistoryNote(width: noteWidth)
+        historyNote.note.delegate = self
+        historyNote.note.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(historyNote.note)
 
         // The version belongs here rather than in a separate row: it is reference
         // information, not a control, and it replaces the "no network access"
@@ -188,9 +186,10 @@ final class SettingsWindowController: NSWindowController {
             storageControls.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             storageControls.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
             storageControls.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 20),
-            note.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-            note.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            note.topAnchor.constraint(equalTo: storageControls.bottomAnchor, constant: 20),
+            historyNote.note.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            historyNote.note.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            historyNote.note.topAnchor.constraint(equalTo: storageControls.bottomAnchor, constant: 20),
+            historyNote.note.heightAnchor.constraint(equalToConstant: historyNote.height),
             license.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             license.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -19),
             emaitchessButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
@@ -300,6 +299,61 @@ final class SettingsWindowController: NSWindowController {
             "https://emaitchess.com/?utm_source=searoom&utm_medium=desktop_app&utm_campaign=product_attribution&utm_content=settings_footer"
         ) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    /// The history directory only exists once the first persistence pass has
+    /// run, so the click creates it rather than opening a path Finder cannot
+    /// show. History writes take the same directory.
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        guard let url = link as? URL, url.isFileURL else { return false }
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(url)
+        return true
+    }
+
+    private func makeHistoryNote(width: CGFloat) -> (note: NSTextView, height: CGFloat) {
+        let note = NSTextView()
+        note.isEditable = false
+        note.isSelectable = true
+        note.isRichText = false
+        note.drawsBackground = false
+        note.isVerticallyResizable = false
+        note.isHorizontallyResizable = false
+        note.textContainer?.widthTracksTextView = true
+        note.textContainer?.lineFragmentPadding = 0
+        note.textContainerInset = .zero
+
+        let baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: SearoomFont.system(11),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        let text = NSMutableAttributedString(
+            string: "CPU pressure is a derived saturation signal. Temperature, fan and GPU readings are best-effort because macOS does not expose universal public APIs for them. Unsupported sensors remain clearly unavailable. All history stays in ",
+            attributes: baseAttributes
+        )
+        text.append(NSAttributedString(
+            string: "~/Library/Application Support/Searoom",
+            attributes: [
+                .font: SearoomFont.system(11),
+                .foregroundColor: NSColor.linkColor,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+                .link: historyDirectoryURL
+            ]
+        ))
+        text.append(NSAttributedString(string: ".", attributes: baseAttributes))
+        note.textStorage?.setAttributedString(text)
+
+        guard let container = note.textContainer else { return (note, 0) }
+        container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        note.layoutManager?.ensureLayout(for: container)
+        let measuredHeight = note.layoutManager?.usedRect(for: container).height ?? 0
+        return (note, ceil(measuredHeight))
+    }
+
+    private var historyDirectoryURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("Searoom", isDirectory: true)
     }
 
     @objc private func clearShortcut() {
