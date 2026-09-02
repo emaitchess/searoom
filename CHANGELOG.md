@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Releases are now gated on continuous integration. `Scripts/release.sh
+  --publish` refuses to tag or publish from a commit whose CI run did not
+  conclude successfully, and a published release is re-checked against the
+  artifacts attached to it: notarization, stapling, and the SHA-256 values in
+  the release notes.
+
 ## [0.2.0] - 2026-09-02
 
 ### Added

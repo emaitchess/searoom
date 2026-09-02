@@ -1,0 +1,95 @@
+name: Release
+
+# CI already guards every push, so this is not a second build gate. The signed,
+# notarized artifacts are produced on a developer's Mac, because Developer ID
+# signing needs a private key and the disk-image window layout is recorded by
+# Finder; neither exists on a runner. That makes the published bytes the one
+# thing CI has never seen. This workflow looks at them, and at whether the tag,
+# the bundle version, and the changelog tell the same story.
+#
+# Scripts/release.sh refuses to publish from a commit CI has not passed. This
+# runs after the fact and reports on what shipped.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to re-verify, for example v0.2.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Tag, bundle version, and changelog agree
+        run: |
+          version="$(plutil -extract CFBundleShortVersionString raw Support/Info.plist)"
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::Info.plist declares $version but the release is tagged $TAG"
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\] - " CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no released section for $version"
+            exit 1
+          fi
+          echo "$TAG matches Info.plist and has a changelog entry."
+
+      - name: Build
+        run: swift build --configuration release --disable-sandbox
+
+      - name: Test
+        run: swift test --disable-sandbox
+
+      - name: Hardware-safe self-test
+        run: .build/release/Searoom --self-test
+
+      - name: Download the published artifacts
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir artifacts --pattern 'Searoom.*'
+
+      - name: Disk image is notarized and stapled
+        run: |
+          xcrun stapler validate artifacts/Searoom.dmg
+          # Captured before matching, so grep cannot SIGPIPE the writer.
+          assessment="$(spctl --assess --type open --context context:primary-signature --verbose=4 artifacts/Searoom.dmg 2>&1)"
+          echo "$assessment"
+          grep -q 'source=Notarized Developer ID' <<<"$assessment" \
+            || { echo "::error::Searoom.dmg is not accepted from a Notarized Developer ID source"; exit 1; }
+
+      - name: The shipped app passes its own self-test
+        run: |
+          ditto -x -k artifacts/Searoom.zip unpacked
+          xcrun stapler validate unpacked/Searoom.app
+          spctl --assess --type execute --verbose=4 unpacked/Searoom.app
+          unpacked/Searoom.app/Contents/MacOS/Searoom --self-test
+
+      - name: Published checksums match the published bytes
+        run: |
+          notes="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+          failures=0
+          for asset in Searoom.dmg Searoom.zip; do
+            expected="$(grep -Eo "$asset[[:space:]]+[0-9a-f]{64}" <<<"$notes" | awk '{print $2}' | head -1)"
+            actual="$(shasum -a 256 "artifacts/$asset" | cut -d' ' -f1)"
+            if [ -z "$expected" ]; then
+              echo "::error::the release notes publish no SHA-256 for $asset"
+              failures=1
+            elif [ "$expected" != "$actual" ]; then
+              echo "::error::$asset is $actual but the notes publish $expected"
+              failures=1
+            else
+              echo "$asset $actual"
+            fi
+          done
+          exit $failures

@@ -15,6 +15,9 @@
 #
 # Publishing is opt-in because tagging and creating a GitHub release are public,
 # externally visible actions. Everything before that step is local and repeatable.
+#
+# --publish additionally refuses to proceed unless GitHub Actions has already
+# concluded successfully for the exact commit being released.
 
 set -euo pipefail
 
@@ -45,6 +48,11 @@ fail() { printf '\033[31merror: %s\033[0m\n' "$1" >&2; exit 1; }
 : "${CODE_SIGN_IDENTITY:?set CODE_SIGN_IDENTITY in $ENV_FILE}"
 : "${NOTARY_KEYCHAIN_PROFILE:?set NOTARY_KEYCHAIN_PROFILE in $ENV_FILE}"
 
+# Read by the CI gate in the publish preflight; overridable from $ENV_FILE.
+CI_WORKFLOW="${CI_WORKFLOW:-ci.yml}"
+CI_GATE_TIMEOUT="${CI_GATE_TIMEOUT:-1500}"
+CI_POLL_INTERVAL="${CI_POLL_INTERVAL:-15}"
+
 APP_PATH="$REPOSITORY_ROOT/dist/Searoom.app"
 ARCHIVE_PATH="$REPOSITORY_ROOT/dist/Searoom.zip"
 DMG_PATH="$REPOSITORY_ROOT/dist/Searoom.dmg"
@@ -73,6 +81,46 @@ if [[ "$PUBLISH" == 1 ]]; then
     [[ -z "$(git status --porcelain)" ]] || fail "working tree is dirty; commit before publishing $TAG"
     git rev-parse "$TAG" >/dev/null 2>&1 && fail "tag $TAG already exists; bump CFBundleShortVersionString"
     gh release view "$TAG" >/dev/null 2>&1 && fail "release $TAG already exists"
+
+    # A release is only ever cut from a commit CI has already agreed with.
+    # 0.2.0 was published about thirty seconds before CI went red on that exact
+    # commit, and the local `swift test` further down cannot be the safety net:
+    # on a Command Line Tools installation without XCTest it prints a warning
+    # and carries on, which is what happened. So ask GitHub what it concluded
+    # about this commit and refuse to publish anything else. There is no
+    # override, deliberately; fix CI, or do not release.
+    HEAD_SHA="$(git rev-parse HEAD)"
+    echo "Commit       $HEAD_SHA"
+    CI_STATUS=""
+    CI_CONCLUSION=""
+    CI_URL=""
+    CI_DEADLINE=$(( SECONDS + CI_GATE_TIMEOUT ))
+    while :; do
+        # One API call per poll. A transient failure yields an empty line and is
+        # retried like a missing run, bounded by the same deadline.
+        CI_RUN="$(gh run list --commit "$HEAD_SHA" --workflow "$CI_WORKFLOW" --limit 1 \
+            --json status,conclusion,url \
+            --jq '.[0] // empty | [.status, .conclusion, .url] | @tsv' 2>/dev/null || true)"
+        IFS=$'\t' read -r CI_STATUS CI_CONCLUSION CI_URL <<<"$CI_RUN"
+
+        if [[ "$CI_STATUS" == "completed" ]]; then
+            break
+        fi
+
+        if (( SECONDS >= CI_DEADLINE )); then
+            if [[ -n "$CI_STATUS" ]]; then
+                fail "CI is still $CI_STATUS for $HEAD_SHA after ${CI_GATE_TIMEOUT}s: $CI_URL"
+            fi
+            fail "no $CI_WORKFLOW run for $HEAD_SHA after ${CI_GATE_TIMEOUT}s. Push the commit and let CI finish before publishing $TAG."
+        fi
+
+        echo "CI           ${CI_STATUS:-not started}; waiting ${CI_POLL_INTERVAL}s"
+        sleep "$CI_POLL_INTERVAL"
+    done
+
+    [[ "$CI_CONCLUSION" == "success" ]] \
+        || fail "CI concluded '$CI_CONCLUSION' for $HEAD_SHA, so $TAG will not be published: $CI_URL"
+    echo "CI           success ($CI_URL)"
 fi
 echo "OK"
 

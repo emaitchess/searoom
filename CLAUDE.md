@@ -29,6 +29,7 @@ Packaging and asset generation:
 
 ```sh
 Scripts/release.sh                      # signed, notarized, stapled dist/Searoom.zip (add --publish to tag and release)
+                                        # --publish stops unless ci.yml already passed for HEAD; there is no override
 Scripts/build-app.sh                    # ad-hoc signed dist/Searoom.app
 swift Scripts/render-icon.swift Brand   # regenerates AppIcon-1024.png, searoom-mark.svg, AppIcon.icns
 npx --yes @google/design.md lint DESIGN.md   # must report zero errors and zero warnings
@@ -111,7 +112,8 @@ Thresholds live in one place, `PressureLevel.from(utilization:)` (70/85/95). Cha
 
 ## Environment notes
 
-- `swift test` needs XCTest, which some Command Line Tools installations omit; it then fails with `unable to resolve module dependency: 'XCTest'`. When that happens, say the tests did not run, and fall back to `--self-test`, which is deliberately framework-independent. CI runs on `macos-15` with full Xcode.
+- `swift test` needs XCTest, which some Command Line Tools installations omit; it then fails with `unable to resolve module dependency: 'XCTest'`. When that happens, say the tests did not run, and fall back to `--self-test`, which is deliberately framework-independent. CI runs on `macos-15` with full Xcode. If a full Xcode is installed but `xcode-select -p` points at `/Library/Developer/CommandLineTools`, prefix the one command rather than switching the system default: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --disable-sandbox`.
+- Releases are gated on CI, not on the local run: `Scripts/release.sh --publish` looks up the `ci.yml` conclusion for `HEAD` and refuses to publish anything but a success, and `.github/workflows/release.yml` audits the published artifacts afterwards.
 - `dist/` and `.build/` are generated. Do not hand-edit or commit them.
 - The canonical website is `https://searoom.app`, the repository is `https://github.com/emaitchess/searoom`, and the permanent bundle identifier is `app.searoom.Searoom`; keep public links and packaging metadata aligned with them.
 - The website is a **separate repository**, served by a Cloudflare Worker with static assets (not Cloudflare Pages). This repository holds no website code. Release-bearing copy on the site (version number, macOS floor, requirements, sensor-availability claims) has to be updated there when it changes here.

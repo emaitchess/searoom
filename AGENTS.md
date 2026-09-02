@@ -38,6 +38,7 @@ Preserve these non-negotiable properties:
 | `Support/Info.plist` | Bundle identity, version, minimum OS, and `LSUIElement` behavior |
 | `.env.release.example` | Template for the untracked `.env.release` read by `Scripts/release.sh`; names the signing identity and keychain profile, never a secret |
 | `Scripts` | Foreground development launch, app packaging, notarization, release automation, and brand asset generation |
+| `.github/workflows` | `ci.yml` builds and tests every push; `release.yml` audits a published release against the bytes actually attached to it |
 | `Brand` | Current generated app icon and source vector artwork; do not add retired-logo archives |
 | `DESIGN.md` | Machine-readable tokens and human-readable design rules |
 | `CLAUDE.md` | Commands and cross-file architecture orientation; defers to this file for the contract |
@@ -223,7 +224,11 @@ swift test --disable-sandbox
 
 The first sample for delta-based metrics is a baseline; use the second sample when diagnosing CPU, network, disk, or self CPU rates. `--self-test` is intentionally framework-independent and should work on machines with only Command Line Tools.
 
-Some Command Line Tools installations do not include XCTest. If `swift test` fails because XCTest itself is missing, report that limitation accurately and still run the build and self-test. Do not claim unit tests passed when they did not run. CI uses full Xcode on `macos-15`.
+Some Command Line Tools installations do not include XCTest. If `swift test` fails because XCTest itself is missing, report that limitation accurately and still run the build and self-test. Do not claim unit tests passed when they did not run. CI uses full Xcode on `macos-15`, and the release gate refuses to publish without a green CI run, so a local skip delays a release rather than shipping past one. When a full Xcode is installed but not selected, point the toolchain at it for one command instead of switching the system default:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --disable-sandbox
+```
 
 In a restricted environment where Swift cannot write its default module cache, direct only the caches to a writable temporary location:
 
@@ -275,5 +280,9 @@ plutil -lint dist/Searoom.app/Contents/Info.plist
 `Scripts/release.sh` runs the whole release: preflight, tests, signed build, signature and hardened-runtime verification, notarization, stapling, and a Gatekeeper assessment. It publishes two artifacts: `Searoom.dmg`, which is signed and notarized in its own right so it validates offline, and `Searoom.zip`. The app inside the image is already stapled, so it stays valid once dragged out. Zip archives are not byte-reproducible, so never re-upload a zip over one already published; its checksum will differ even from identical sources. It stops before tagging unless `--publish` is passed, because tagging and creating a GitHub release are public actions. It reads `CODE_SIGN_IDENTITY` and `NOTARY_KEYCHAIN_PROFILE` from an untracked `.env.release`; see `.env.release.example`. That file names the keychain profile and must never hold the password itself.
 
 Developer ID signing uses `CODE_SIGN_IDENTITY`; notarization uses a preconfigured notarytool keychain profile via `Scripts/notarize.sh`. Signing, notarization, publishing, changing external login items, and creating releases are external side effects—perform them only when explicitly requested. Never place certificates, keychain profiles, Apple credentials, or notarization secrets in the repository.
+
+`Scripts/release.sh --publish` will not tag or release from a commit GitHub Actions has not already passed. The preflight looks up the `ci.yml` run for the exact `HEAD` SHA, waits while it is queued or in progress, and stops if it concluded anything other than success. 0.2.0 was published about thirty seconds before CI went red on that same commit, and the local `swift test` had not caught it because XCTest was missing from the selected toolchain, so the gate exists to make that ordering impossible. There is no override: fix CI, or do not release. `CI_WORKFLOW`, `CI_GATE_TIMEOUT`, and `CI_POLL_INTERVAL` can be set in `.env.release` if the workflow filename or the timings need to change.
+
+`.github/workflows/release.yml` runs when a release is published and audits what actually shipped. The tag, `CFBundleShortVersionString`, and the changelog section have to agree; the tagged tree has to build, test, and pass the self-test; `Searoom.dmg` has to be stapled and assessed from a `Notarized Developer ID` source; the app inside `Searoom.zip` has to pass its own self-test; and the SHA-256 values printed in the release notes have to match the bytes attached to the release. It never builds or uploads an artifact. Developer ID signing needs a private key and the disk image's window layout is recorded by Finder, so release artifacts are built on a developer's Mac and CI checks them rather than producing them. Keep it that way; do not move signing credentials into Actions secrets.
 
 `Scripts/release.sh` derives the tag from `CFBundleShortVersionString` and refuses to publish over an existing tag or release, so the version must be bumped before a new release. Update `CFBundleShortVersionString` and `CFBundleVersion` deliberately for releases. Keep the MIT license, third-party notices, bundled font license, privacy statements, and open-source documentation synchronized with shipped artifacts.

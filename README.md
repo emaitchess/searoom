@@ -163,6 +163,13 @@ Scripts/release.sh                     # build and notarize
 Scripts/release.sh --publish           # also tag and create the GitHub release
 ```
 
+`--publish` refuses to tag or release from a commit that GitHub Actions has not
+already passed, waiting for a run still in progress. After a release is
+published, `.github/workflows/release.yml` re-checks it: the tag, bundle
+version, and changelog have to agree, the tagged tree has to build and test, and
+the attached `Searoom.dmg` and `Searoom.zip` have to be notarized and match the
+checksums printed in the release notes.
+
 ## Test
 
 ```sh
