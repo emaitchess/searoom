@@ -14,10 +14,12 @@ enum MenuBarMetric: String, CaseIterable, Codable, Sendable {
     case thermalPressure
     case gpuUsage
     case gpuPressure
+    case gpuMemory
     case networkDownload
     case networkUpload
     case diskRead
     case diskWrite
+    case diskFree
     case fan
     case power
     case uptime
@@ -41,10 +43,12 @@ enum MenuBarMetric: String, CaseIterable, Codable, Sendable {
         case .thermalPressure: "Thermal Pressure"
         case .gpuUsage: "GPU Usage"
         case .gpuPressure: "GPU Pressure"
+        case .gpuMemory: "GPU Memory"
         case .networkDownload: "Network Download"
         case .networkUpload: "Network Upload"
         case .diskRead: "Disk Read"
         case .diskWrite: "Disk Write"
+        case .diskFree: "Disk Free"
         case .fan: "Fan Activity"
         case .power: "Power"
         case .uptime: "Uptime"

@@ -104,6 +104,8 @@ enum SelfTest {
         )
         check(decodedFutureMetrics?.customMenuBarMetrics == [.cpuUsage], "future metric migration")
         check(MenuBarMetric.memoryFreeUsed.title == "RAM Free / Used", "combined RAM metric")
+        check(MenuBarMetric.gpuMemory.title == "GPU Memory", "GPU memory metric title")
+        check(MenuBarMetric.diskFree.title == "Disk Free", "disk free metric title")
         check(
             MenuBarMetric.normalized([.cpuUsage, .cpuUsage, .temperature, .gpuUsage])
                 == [.cpuUsage, .temperature, .gpuUsage],

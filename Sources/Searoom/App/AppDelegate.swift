@@ -327,7 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     "RAM \(menuBytes(sample.memoryUsed))/\(menuBytes(sample.memoryTotal))",
                     pressure: sample.memoryPressureLevel
                 ),
-                component(compactTemperature(sample), pressure: sample.thermalPressureLevel)
+                component(compactTemperature(sample), pressure: sample.thermalPressureLevel),
+                component("VRAM \(menuOptionalBytes(sample.gpuMemoryUsedBytes))", pressure: sample.gpuPressureLevel)
             ]
         case .compute:
             [
@@ -464,6 +465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             [component("GPU \(menuPercent(sample.gpuUsage))", pressure: sample.gpuPressureLevel)]
         case .gpuPressure:
             [component("GPU-P \(menuPressure(sample.gpuPressureLevel))", pressure: sample.gpuPressureLevel)]
+        case .gpuMemory:
+            [component("VRAM \(menuOptionalBytes(sample.gpuMemoryUsedBytes))", pressure: sample.gpuPressureLevel)]
         case .networkDownload:
             [activityComponent("↓\(menuRate(sample.networkDownloadPerSecond))", value: sample.networkDownloadPerSecond)]
         case .networkUpload:
@@ -472,6 +475,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             [activityComponent("R \(menuRate(sample.diskReadPerSecond))", value: sample.diskReadPerSecond)]
         case .diskWrite:
             [activityComponent("W \(menuRate(sample.diskWritePerSecond))", value: sample.diskWritePerSecond)]
+        case .diskFree:
+            [MenuBarComponent(
+                text: "DISK \(menuOptionalBytes(sample.diskAvailableBytes))",
+                tone: .neutral
+            )]
         case .fan:
             [component("FAN \(menuFan(sample))", pressure: fanLevel(sample))]
         case .power:
@@ -529,6 +537,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     private func menuBytes(_ value: UInt64) -> String {
         MetricFormat.fixedField(MetricFormat.compactBytes(value), columns: 5)
+    }
+
+    private func menuOptionalBytes(_ value: UInt64?) -> String {
+        MetricFormat.fixedField(value.map(MetricFormat.compactBytes) ?? "N/A", columns: 5)
     }
 
     private func menuRate(_ value: Double) -> String {
