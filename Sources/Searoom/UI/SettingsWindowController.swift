@@ -2,7 +2,8 @@ import AppKit
 import ServiceManagement
 
 @MainActor
-final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
+final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
+    NSTableViewDataSource, NSTableViewDelegate {
     private let model: AppModel
     private let shortcutManager: GlobalShortcutManager
     private let presetPopUp = NSPopUpButton()
@@ -15,13 +16,22 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
     private let launchButton = NSButton(checkboxWithTitle: "Launch Searoom at login", target: nil, action: nil)
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
     private let updatesButton = NSButton(title: "Check for Updates", target: nil, action: nil)
+    private let githubButton = NSButton(title: "GITHUB ↗", target: nil, action: nil)
     private let emaitchessButton = NSButton(title: "PART OF EMAITCHESS ↗", target: nil, action: nil)
+    private let orderTable = NSTableView()
+    private let orderScroll = NSScrollView()
+    private let moveUpButton = NSButton(title: "Move Up", target: nil, action: nil)
+    private let moveDownButton = NSButton(title: "Move Down", target: nil, action: nil)
+    private let resetOrderButton = NSButton(title: "Default Order", target: nil, action: nil)
+    /// Mirrors the persisted order so the table has a stable data source; the
+    /// dashboard can also change it by drag, so `show()` re-reads the model.
+    private var sectionOrder: [DashboardSection] = DashboardSection.defaults
 
     init(model: AppModel, shortcutManager: GlobalShortcutManager) {
         self.model = model
         self.shortcutManager = shortcutManager
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 470, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 470, height: 640),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -123,12 +133,52 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             "Asks searoom.app which version is current. Nothing is downloaded or installed."
         )
 
+        let orderColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("section"))
+        orderColumn.title = "Card"
+        orderTable.addTableColumn(orderColumn)
+        orderTable.headerView = nil
+        orderTable.rowHeight = 18
+        orderTable.dataSource = self
+        orderTable.delegate = self
+        orderTable.allowsMultipleSelection = false
+        orderTable.allowsEmptySelection = false
+        orderTable.style = .plain
+        orderTable.setAccessibilityLabel("Dashboard card order")
+        orderScroll.documentView = orderTable
+        orderScroll.hasVerticalScroller = true
+        orderScroll.borderType = .bezelBorder
+        orderScroll.translatesAutoresizingMaskIntoConstraints = false
+        orderScroll.heightAnchor.constraint(equalToConstant: 112).isActive = true
+
+        for button in [moveUpButton, moveDownButton, resetOrderButton] {
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.target = self
+        }
+        moveUpButton.action = #selector(moveSectionUp)
+        moveDownButton.action = #selector(moveSectionDown)
+        resetOrderButton.action = #selector(resetSectionOrder)
+        moveUpButton.setAccessibilityLabel("Move the selected card earlier")
+        moveDownButton.setAccessibilityLabel("Move the selected card later")
+        resetOrderButton.setAccessibilityLabel("Restore the default card order")
+
+        let orderButtons = NSStackView(views: [moveUpButton, moveDownButton, resetOrderButton])
+        orderButtons.orientation = .horizontal
+        orderButtons.alignment = .centerY
+        orderButtons.spacing = 6
+        let orderGroup = NSStackView(views: [orderScroll, orderButtons])
+        orderGroup.orientation = .vertical
+        orderGroup.alignment = .leading
+        orderGroup.spacing = 6
+        orderGroup.toolTip = "Cards can also be dragged directly on the dashboard."
+
         let grid = NSGridView(views: [
             [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), presetPopUp],
             [makeLabel("CUSTOM METRICS", size: 10, color: .secondaryLabelColor), customMetricControls],
             [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
             [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalPopUp],
-            [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyPopUp]
+            [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyPopUp],
+            [makeLabel("CARD ORDER", size: 10, color: .secondaryLabelColor), orderGroup]
         ])
         grid.rowSpacing = 14
         grid.columnSpacing = 24
@@ -137,10 +187,17 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         grid.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(grid)
 
-        let storageControls = NSStackView(views: [launchButton, updatesButton, resetHistoryButton])
+        let storageActions = NSStackView(views: [updatesButton, resetHistoryButton])
+        storageActions.orientation = .horizontal
+        storageActions.alignment = .centerY
+        storageActions.spacing = 8
+        let storageSpacer = NSView()
+        storageSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        storageSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let storageControls = NSStackView(views: [launchButton, storageSpacer, storageActions])
         storageControls.orientation = .horizontal
         storageControls.alignment = .centerY
-        storageControls.distribution = .equalSpacing
+        storageControls.distribution = .fill
         storageControls.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(storageControls)
 
@@ -155,15 +212,27 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         // claim that the user-initiated update check made untrue.
         let version = UpdateChecker.currentVersion
         let license = makeLabel(
-            "SEAROOM \(version) · OPEN SOURCE · MIT · NO ANALYTICS",
+            "SEAROOM \(version) · OPEN SOURCE · MIT",
             size: 8,
             color: .secondaryLabelColor
         )
         license.setAccessibilityLabel(
-            "Searoom version \(version). Open source, MIT licensed, no analytics."
+            "Searoom version \(version). Open source and MIT licensed."
         )
         license.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(license)
+
+        githubButton.isBordered = false
+        githubButton.font = SearoomFont.metric(8)
+        githubButton.contentTintColor = .secondaryLabelColor
+        githubButton.alignment = .right
+        githubButton.target = self
+        githubButton.action = #selector(openGitHubRepository)
+        githubButton.toolTip = "https://github.com/emaitchess/searoom"
+        githubButton.setAccessibilityLabel("Searoom on GitHub")
+        githubButton.setAccessibilityHelp("Opens the Searoom repository in your default browser")
+        githubButton.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(githubButton)
 
         emaitchessButton.isBordered = false
         emaitchessButton.font = SearoomFont.metric(8)
@@ -194,7 +263,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
             license.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -19),
             emaitchessButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
             emaitchessButton.firstBaselineAnchor.constraint(equalTo: license.firstBaselineAnchor),
-            emaitchessButton.leadingAnchor.constraint(greaterThanOrEqualTo: license.trailingAnchor, constant: 12)
+            githubButton.trailingAnchor.constraint(equalTo: emaitchessButton.leadingAnchor, constant: -12),
+            githubButton.firstBaselineAnchor.constraint(equalTo: license.firstBaselineAnchor),
+            githubButton.leadingAnchor.constraint(greaterThanOrEqualTo: license.trailingAnchor, constant: 12)
         ])
     }
 
@@ -208,6 +279,58 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         shortcutRecorder.shortcut = model.settings.globalShortcut
         shortcutClearButton.isEnabled = model.settings.globalShortcut != nil
         launchButton.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        sectionOrder = model.settings.dashboardSectionOrder
+        let selected = orderTable.selectedRow
+        orderTable.reloadData()
+        if sectionOrder.indices.contains(selected) {
+            orderTable.selectRowIndexes([selected], byExtendingSelection: false)
+        }
+        syncOrderButtons()
+    }
+
+    private func syncOrderButtons() {
+        let row = orderTable.selectedRow
+        moveUpButton.isEnabled = row > 0
+        moveDownButton.isEnabled = row >= 0 && row < sectionOrder.count - 1
+    }
+
+    private func moveSelectedSection(by offset: Int) {
+        let row = orderTable.selectedRow
+        let destination = row + offset
+        guard sectionOrder.indices.contains(row), sectionOrder.indices.contains(destination) else {
+            return
+        }
+        let moved = DashboardSection.reordered(sectionOrder, moving: sectionOrder[row], to: destination)
+        model.setDashboardSectionOrder(moved)
+        sectionOrder = model.settings.dashboardSectionOrder
+        orderTable.reloadData()
+        orderTable.selectRowIndexes([destination], byExtendingSelection: false)
+        syncOrderButtons()
+    }
+
+    @objc private func moveSectionUp() { moveSelectedSection(by: -1) }
+
+    @objc private func moveSectionDown() { moveSelectedSection(by: 1) }
+
+    @objc private func resetSectionOrder() {
+        model.setDashboardSectionOrder(DashboardSection.defaults)
+        sectionOrder = model.settings.dashboardSectionOrder
+        orderTable.reloadData()
+        syncOrderButtons()
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { sectionOrder.count }
+
+    func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
+        guard sectionOrder.indices.contains(row) else { return nil }
+        let label = NSTextField(labelWithString: sectionOrder[row].title)
+        label.font = .systemFont(ofSize: 11)
+        label.setAccessibilityLabel("\(sectionOrder[row].title), position \(row + 1) of \(sectionOrder.count)")
+        return label
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        syncOrderButtons()
     }
 
     @objc private func presetChanged() {
@@ -298,6 +421,11 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate {
         guard let url = URL(string:
             "https://emaitchess.com/?utm_source=searoom&utm_medium=desktop_app&utm_campaign=product_attribution&utm_content=settings_footer"
         ) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func openGitHubRepository() {
+        guard let url = URL(string: "https://github.com/emaitchess/searoom") else { return }
         NSWorkspace.shared.open(url)
     }
 

@@ -109,6 +109,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     var historyMinutes: Int
     var globalShortcut: GlobalShortcut?
     var customMenuBarMetrics: [MenuBarMetric]
+    var dashboardSectionOrder: [DashboardSection]
     var hasCompletedLaunchAtLoginPrompt: Bool
 
     init(
@@ -117,6 +118,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         historyMinutes: Int = 30,
         globalShortcut: GlobalShortcut? = nil,
         customMenuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults,
+        dashboardSectionOrder: [DashboardSection] = DashboardSection.defaults,
         hasCompletedLaunchAtLoginPrompt: Bool = false
     ) {
         self.sampleInterval = sampleInterval
@@ -124,6 +126,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         self.historyMinutes = historyMinutes
         self.globalShortcut = globalShortcut
         self.customMenuBarMetrics = MenuBarMetric.normalized(customMenuBarMetrics)
+        self.dashboardSectionOrder = DashboardSection.normalized(dashboardSectionOrder)
         self.hasCompletedLaunchAtLoginPrompt = hasCompletedLaunchAtLoginPrompt
         normalize()
     }
@@ -141,6 +144,12 @@ struct AppSettings: Codable, Equatable, Sendable {
         let customMetrics = customMetricNames?.compactMap(MenuBarMetric.init(rawValue:))
             ?? MenuBarMetric.defaults
         customMenuBarMetrics = MenuBarMetric.normalized(customMetrics)
+        // Decoded by raw name so a section retired in a later build is dropped
+        // rather than failing the whole archive; normalization refills the gap.
+        let sectionNames = try values.decodeIfPresent([String].self, forKey: .dashboardSectionOrder)
+        let sections = sectionNames?.compactMap(DashboardSection.init(rawValue:))
+            ?? DashboardSection.defaults
+        dashboardSectionOrder = DashboardSection.normalized(sections)
         // An existing archive proves Searoom has run before this prompt existed.
         hasCompletedLaunchAtLoginPrompt = try values.decodeIfPresent(
             Bool.self,
@@ -155,6 +164,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         }
         if !Self.supportedHistoryMinutes.contains(historyMinutes) { historyMinutes = 30 }
         customMenuBarMetrics = MenuBarMetric.normalized(customMenuBarMetrics)
+        dashboardSectionOrder = DashboardSection.normalized(dashboardSectionOrder)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -164,6 +174,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         try values.encode(historyMinutes, forKey: .historyMinutes)
         try values.encodeIfPresent(globalShortcut, forKey: .globalShortcut)
         try values.encode(customMenuBarMetrics, forKey: .customMenuBarMetrics)
+        try values.encode(dashboardSectionOrder, forKey: .dashboardSectionOrder)
         try values.encode(hasCompletedLaunchAtLoginPrompt, forKey: .hasCompletedLaunchAtLoginPrompt)
     }
 
@@ -173,6 +184,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case historyMinutes
         case globalShortcut
         case customMenuBarMetrics
+        case dashboardSectionOrder
         case hasCompletedLaunchAtLoginPrompt
     }
 }

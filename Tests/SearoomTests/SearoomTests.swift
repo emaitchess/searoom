@@ -589,4 +589,172 @@ final class SearoomTests: XCTestCase {
         }
     }
 
+    // The coordinates below are the ones DashboardView carried as literals
+    // before the layout became computed. If this test fails, the refactor
+    // moved the dashboard rather than merely deriving it.
+    func testDefaultLayoutReproducesTheOriginalFixedGeometry() {
+        let layout = DashboardLayout.make(order: DashboardSection.defaults, width: 430)
+        let expected: [(DashboardSection, NSRect)] = [
+            (.cpu, NSRect(x: 12, y: 82, width: 198, height: 158)),
+            (.memory, NSRect(x: 220, y: 82, width: 198, height: 158)),
+            (.gpu, NSRect(x: 12, y: 250, width: 198, height: 158)),
+            (.thermal, NSRect(x: 220, y: 250, width: 198, height: 158)),
+            (.gpuMemory, NSRect(x: 12, y: 418, width: 198, height: 158)),
+            (.disk, NSRect(x: 220, y: 418, width: 198, height: 158)),
+            (.network, NSRect(x: 12, y: 586, width: 406, height: 122)),
+            (.info, NSRect(x: 12, y: 718, width: 406, height: 88)),
+            (.extras, NSRect(x: 12, y: 816, width: 406, height: 180))
+        ]
+        XCTAssertEqual(layout.slots.count, expected.count)
+        for (index, pair) in expected.enumerated() {
+            XCTAssertEqual(layout.slots[index].section, pair.0)
+            XCTAssertEqual(layout.slots[index].rect, pair.1, "\(pair.0) moved")
+        }
+        XCTAssertEqual(layout.selfRect, NSRect(x: 12, y: 1006, width: 406, height: 42))
+        XCTAssertEqual(layout.footerRect, NSRect(x: 0, y: 1062, width: 430, height: 38))
+        XCTAssertEqual(layout.contentHeight, 1120)
+    }
+
+    func testFullWidthSectionAfterAnOddHalfRowLeavesNoOverlap() {
+        // Network lands after a single half-width card, so CPU's row is closed
+        // with its right half empty and everything below shifts by one row.
+        let order: [DashboardSection] = [
+            .cpu, .network, .memory, .gpu, .thermal, .gpuMemory, .disk, .info, .extras
+        ]
+        let layout = DashboardLayout.make(order: order, width: 430)
+        let reference = DashboardLayout.make(order: DashboardSection.defaults, width: 430)
+        XCTAssertEqual(layout.contentHeight, reference.contentHeight + 168)
+        XCTAssertEqual(layout.rect(for: .cpu), NSRect(x: 12, y: 82, width: 198, height: 158))
+        XCTAssertEqual(layout.rect(for: .network), NSRect(x: 12, y: 250, width: 406, height: 122))
+
+        for outer in layout.slots.indices {
+            for inner in layout.slots.indices where inner > outer {
+                XCTAssertFalse(
+                    layout.slots[outer].rect.intersects(layout.slots[inner].rect),
+                    "\(layout.slots[outer].section) overlaps \(layout.slots[inner].section)"
+                )
+            }
+            XCTAssertFalse(layout.slots[outer].rect.intersects(layout.selfRect))
+            XCTAssertFalse(layout.slots[outer].rect.intersects(layout.footerRect))
+        }
+    }
+
+    func testEverySectionOrderKeepsAllSectionsAndClearsTheHeader() {
+        // A permutation may change the height but must never drop a section or
+        // let content ride up into the header band.
+        let orders: [[DashboardSection]] = [
+            DashboardSection.defaults,
+            DashboardSection.defaults.reversed(),
+            [.extras, .cpu, .info, .memory, .network, .gpu, .thermal, .gpuMemory, .disk]
+        ]
+        for order in orders {
+            let layout = DashboardLayout.make(order: order, width: 430)
+            XCTAssertEqual(Set(layout.slots.map(\.section)), Set(DashboardSection.allCases))
+            XCTAssertEqual(layout.slots.map(\.section), order)
+            for slot in layout.slots {
+                XCTAssertGreaterThanOrEqual(slot.rect.minY, DashboardLayout.contentTop)
+            }
+            XCTAssertGreaterThan(layout.selfRect.minY, layout.slots.map(\.rect.maxY).max() ?? 0)
+            XCTAssertEqual(layout.footerRect.minY, layout.selfRect.maxY + 14)
+        }
+    }
+
+    func testDropTargetFollowsThePointerAcrossRowsAndColumns() {
+        let layout = DashboardLayout.make(order: DashboardSection.defaults, width: 430)
+
+        // Dragging CPU onto the right half of the last card row puts it after
+        // every card it has passed, and dropping back on itself is a no-op.
+        let ontoDiskTrailing = NSPoint(x: 400, y: 497)
+        let trailingIndex = layout.insertionIndex(for: ontoDiskTrailing, excluding: .cpu)
+        XCTAssertEqual(
+            DashboardSection.reordered(DashboardSection.defaults, moving: .cpu, to: trailingIndex),
+            [.memory, .gpu, .thermal, .gpuMemory, .disk, .cpu, .network, .info, .extras]
+        )
+
+        let ontoOwnPosition = NSPoint(x: 60, y: 120)
+        XCTAssertEqual(
+            DashboardSection.reordered(
+                DashboardSection.defaults,
+                moving: .cpu,
+                to: layout.insertionIndex(for: ontoOwnPosition, excluding: .cpu)
+            ),
+            DashboardSection.defaults
+        )
+
+        // Above everything means first; below everything means last.
+        XCTAssertEqual(layout.insertionIndex(for: NSPoint(x: 20, y: 0), excluding: .cpu), 0)
+        XCTAssertEqual(
+            layout.insertionIndex(for: NSPoint(x: 400, y: 2000), excluding: .cpu),
+            DashboardSection.allCases.count - 1,
+            "the dragged section is excluded, so the last index is one short of the count"
+        )
+    }
+
+    func testDashboardSectionOrderRoundTripsAndMigrates() throws {
+        var settings = AppSettings()
+        XCTAssertEqual(settings.dashboardSectionOrder, DashboardSection.defaults)
+        settings.dashboardSectionOrder = [
+            .gpuMemory, .cpu, .memory, .gpu, .thermal, .disk, .network, .info, .extras
+        ]
+        let encoded = try JSONEncoder().encode(settings)
+        XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: encoded), settings)
+
+        // An archive written before the setting existed keeps the shipped order.
+        let legacy = Data("{\"sampleInterval\":5}".utf8)
+        let migrated = try JSONDecoder().decode(AppSettings.self, from: legacy)
+        XCTAssertEqual(migrated.dashboardSectionOrder, DashboardSection.defaults)
+
+        // A section retired in some future build is dropped, and the partial
+        // order is completed rather than rejected.
+        let forward = Data("{\"dashboardSectionOrder\":[\"disk\",\"futureCard\"]}".utf8)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: forward)
+        XCTAssertEqual(decoded.dashboardSectionOrder.first, .disk)
+        XCTAssertEqual(Set(decoded.dashboardSectionOrder), Set(DashboardSection.allCases))
+    }
+
+    func testReorderingMovesOneSectionAndKeepsTheRest() {
+        let order = DashboardSection.defaults
+        XCTAssertEqual(
+            DashboardSection.reordered(order, moving: .disk, to: 0).first,
+            .disk
+        )
+        XCTAssertEqual(
+            DashboardSection.reordered(order, moving: .cpu, to: order.count - 1).last,
+            .cpu
+        )
+        XCTAssertEqual(
+            DashboardSection.reordered(order, moving: .cpu, to: 0),
+            order,
+            "a move to the position it already holds is a no-op"
+        )
+        // Out-of-range indices clamp instead of trapping, because the index
+        // comes from a pointer position during a drag.
+        XCTAssertEqual(DashboardSection.reordered(order, moving: .gpu, to: -5).first, .gpu)
+        XCTAssertEqual(DashboardSection.reordered(order, moving: .gpu, to: 99).last, .gpu)
+        for target in [0, 3, 8] {
+            let moved = DashboardSection.reordered(order, moving: .network, to: target)
+            XCTAssertEqual(Set(moved), Set(DashboardSection.allCases))
+            XCTAssertEqual(moved.count, DashboardSection.allCases.count)
+        }
+    }
+
+    func testDashboardSectionNormalizationRepairsUserData() {
+        XCTAssertEqual(DashboardSection.normalized([]), DashboardSection.defaults)
+        XCTAssertEqual(
+            DashboardSection.normalized([.disk, .disk, .cpu]).prefix(2).map { $0 },
+            [.disk, .cpu],
+            "duplicates collapse and the surviving order is respected"
+        )
+        XCTAssertEqual(
+            Set(DashboardSection.normalized([.extras])),
+            Set(DashboardSection.allCases),
+            "a partial array is completed rather than rejected"
+        )
+        XCTAssertEqual(DashboardSection.normalized([.extras]).first, .extras)
+        XCTAssertEqual(
+            DashboardSection.normalized(DashboardSection.defaults),
+            DashboardSection.defaults
+        )
+    }
+
 }

@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Dashboard cards can be rearranged. Drag a card to move it, or use the card
+  order list in Settings, which is the keyboard and VoiceOver equivalent. The
+  order is remembered. The Searoom accountability strip and the footer stay
+  where they are.
+
 ### Changed
 
 - Releases are now gated on continuous integration. `Scripts/release.sh

@@ -56,6 +56,10 @@ final class AppModel {
         dashboardUnitState.cycle(target)
     }
 
+    func setDashboardSectionOrder(_ order: [DashboardSection]) {
+        updateSettings { $0.dashboardSectionOrder = DashboardSection.normalized(order) }
+    }
+
     func flushHistory() {
         persistence.save(history.snapshot())
     }

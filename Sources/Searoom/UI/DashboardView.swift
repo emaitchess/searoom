@@ -19,13 +19,31 @@ final class DashboardView: NSView {
     private let refreshClock = ContinuousClock()
     private var trendRefreshPolicy = DashboardTrendRefreshPolicy()
     private var livePresentation: LivePresentation?
+    private var cachedLayout: DashboardLayout?
+    private var cachedLayoutWidth: CGFloat = 0
+    private var cachedLayoutOrder: [DashboardSection] = []
+    private var dragCandidate: DragCandidate?
+    private var activeDrag: ActiveDrag?
+
+    /// Far enough that a click that wobbles is still a click.
+    private static let dragThreshold: CGFloat = 4
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
     init(model: AppModel) {
         self.model = model
-        super.init(frame: NSRect(x: 0, y: 0, width: 430, height: 1120))
+        // The document height depends on the section order, so it is derived
+        // rather than the literal 1120 this view used to carry.
+        super.init(frame: NSRect(
+            x: 0,
+            y: 0,
+            width: 430,
+            height: DashboardLayout.make(
+                order: model.settings.dashboardSectionOrder,
+                width: 430
+            ).contentHeight
+        ))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Searoom system dashboard")
@@ -39,7 +57,31 @@ final class DashboardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    /// One layout per (order, width), rebuilt only when either changes, so the
+    /// draw path does no geometry work on an ordinary sampling tick.
+    private func currentLayout() -> DashboardLayout {
+        let order = model.settings.dashboardSectionOrder
+        if let cachedLayout, cachedLayoutWidth == bounds.width, cachedLayoutOrder == order {
+            return cachedLayout
+        }
+        let layout = DashboardLayout.make(order: order, width: bounds.width)
+        cachedLayout = layout
+        cachedLayoutWidth = bounds.width
+        cachedLayoutOrder = order
+        return layout
+    }
+
+    /// A full-width section placed after an odd number of half-width cards
+    /// leaves half a row empty, so reordering can change the document height.
+    private func syncContentHeight() {
+        let height = currentLayout().contentHeight
+        guard abs(frame.height - height) > 0.5 else { return }
+        setFrameSize(NSSize(width: frame.width, height: height))
+        needsDisplay = true
+    }
+
     func refresh(forceTrend: Bool = false) {
+        syncContentHeight()
         let nextPresentation = makeLivePresentation()
         let previousPresentation = livePresentation
         livePresentation = nextPresentation
@@ -93,21 +135,24 @@ final class DashboardView: NSView {
         dirtyRect.fill()
 
         let sample = model.currentSample
-        let margin: CGFloat = 12
-        let gap: CGFloat = 10
-        let cardWidth = (bounds.width - margin * 2 - gap) / 2
-        let headerRect = NSRect(x: 0, y: 0, width: bounds.width, height: 68)
-        let cpuRect = NSRect(x: margin, y: 82, width: cardWidth, height: 158)
-        let memoryRect = NSRect(x: margin + cardWidth + gap, y: 82, width: cardWidth, height: 158)
-        let gpuRect = NSRect(x: margin, y: 250, width: cardWidth, height: 158)
-        let thermalRect = NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158)
-        let gpuMemoryRect = NSRect(x: margin, y: 418, width: cardWidth, height: 158)
-        let diskRect = NSRect(x: margin + cardWidth + gap, y: 418, width: cardWidth, height: 158)
-        let networkRect = NSRect(x: margin, y: 586, width: bounds.width - margin * 2, height: 122)
-        let infoRect = NSRect(x: margin, y: 718, width: bounds.width - margin * 2, height: 88)
-        let extrasRect = NSRect(x: margin, y: 816, width: bounds.width - margin * 2, height: 180)
-        let selfRect = NSRect(x: margin, y: 1006, width: bounds.width - margin * 2, height: 42)
-        let footerRect = NSRect(x: 0, y: 1062, width: bounds.width, height: 38)
+        let layout = currentLayout()
+        let headerRect = NSRect(
+            x: 0,
+            y: 0,
+            width: bounds.width,
+            height: DashboardLayout.headerHeight
+        )
+        let cpuRect = layout.rect(for: .cpu) ?? .zero
+        let memoryRect = layout.rect(for: .memory) ?? .zero
+        let gpuRect = layout.rect(for: .gpu) ?? .zero
+        let thermalRect = layout.rect(for: .thermal) ?? .zero
+        let gpuMemoryRect = layout.rect(for: .gpuMemory) ?? .zero
+        let diskRect = layout.rect(for: .disk) ?? .zero
+        let networkRect = layout.rect(for: .network) ?? .zero
+        let infoRect = layout.rect(for: .info) ?? .zero
+        let extrasRect = layout.rect(for: .extras) ?? .zero
+        let selfRect = layout.selfRect
+        let footerRect = layout.footerRect
         graphRegions = [
             GraphRegion(metric: .cpu, rect: graphRect(for: cpuRect)),
             GraphRegion(metric: .memory, rect: graphRect(for: memoryRect)),
@@ -263,7 +308,8 @@ final class DashboardView: NSView {
             sample: sample,
             theme: theme
         ) }
-        if needsToDraw(footerRect) { drawFooter(y: 1062, theme: theme) }
+        if needsToDraw(footerRect) { drawFooter(y: footerRect.minY, theme: theme) }
+        if let activeDrag { drawDragAffordance(activeDrag, theme: theme) }
         if needsGraphs { updateHoverOverlays() }
     }
 
@@ -283,8 +329,94 @@ final class DashboardView: NSView {
                     + "\(model.dashboardUnitState.unitLabel(for: region.target))."
             )
         }
+        else if let slot = currentLayout().slots.first(where: { $0.rect.contains(point) }) {
+            // A press inside a section may become a drag. Unit regions are
+            // matched above this, so click-to-cycle keeps priority, and the
+            // threshold in mouseDragged is what separates a click from a drag.
+            dragCandidate = DragCandidate(
+                section: slot.section,
+                origin: point,
+                rect: slot.rect
+            )
+        }
         else { super.mouseDown(with: event) }
     }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let candidate = dragCandidate else {
+            super.mouseDragged(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        if activeDrag == nil {
+            let travelled = hypot(point.x - candidate.origin.x, point.y - candidate.origin.y)
+            guard travelled >= Self.dragThreshold else { return }
+            clearHover()
+            NSCursor.closedHand.set()
+            activeDrag = ActiveDrag(
+                section: candidate.section,
+                rect: candidate.rect,
+                grabOffset: NSPoint(
+                    x: candidate.origin.x - candidate.rect.minX,
+                    y: candidate.origin.y - candidate.rect.minY
+                ),
+                point: point,
+                insertionIndex: 0
+            )
+        }
+        activeDrag?.point = point
+        activeDrag?.insertionIndex = currentLayout().insertionIndex(
+            for: point,
+            excluding: candidate.section
+        )
+        // Lets a drag reach a section scrolled out of view. The clip view still
+        // refuses horizontal movement, so this cannot drift the x origin.
+        autoscroll(with: event)
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let drag = activeDrag else {
+            dragCandidate = nil
+            super.mouseUp(with: event)
+            return
+        }
+        dragCandidate = nil
+        activeDrag = nil
+        NSCursor.arrow.set()
+        // Releasing outside the dashboard abandons the move rather than
+        // dropping the card at whatever edge the pointer happened to leave by.
+        if bounds.contains(convert(event.locationInWindow, from: nil)) {
+            commitDrag(drag)
+        }
+        needsDisplay = true
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        guard activeDrag != nil else {
+            super.cancelOperation(sender)
+            return
+        }
+        dragCandidate = nil
+        activeDrag = nil
+        NSCursor.arrow.set()
+        needsDisplay = true
+    }
+
+    private func commitDrag(_ drag: ActiveDrag) {
+        let reordered = DashboardSection.reordered(
+            model.settings.dashboardSectionOrder,
+            moving: drag.section,
+            to: drag.insertionIndex
+        )
+        guard reordered != model.settings.dashboardSectionOrder else { return }
+        model.setDashboardSectionOrder(reordered)
+        syncContentHeight()
+        updateAccessibilitySummary()
+        setAccessibilityHelp("\(drag.section.title) moved to position \(drag.insertionIndex + 1).")
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
@@ -602,6 +734,46 @@ final class DashboardView: NSView {
         )
     }
 
+    /// Flat, as DESIGN.md requires: a hairline rule marks where the card will
+    /// land and the dragged card is a plain outline under the pointer. No
+    /// shadow, no scaling, no animation.
+    private func drawDragAffordance(_ drag: ActiveDrag, theme: SearoomTheme) {
+        if let indicator = dropIndicatorRect(for: drag) {
+            theme.ink.withAlphaComponent(0.7).setFill()
+            indicator.fill()
+        }
+
+        let ghost = NSRect(
+            x: drag.point.x - drag.grabOffset.x,
+            y: drag.point.y - drag.grabOffset.y,
+            width: drag.rect.width,
+            height: drag.rect.height
+        )
+        theme.paper.withAlphaComponent(0.92).setFill()
+        ghost.fill()
+        drawCardFrame(ghost, theme: theme)
+        drawText(
+            drag.section.title.uppercased(),
+            at: NSPoint(x: ghost.minX + 10, y: ghost.minY + 10),
+            font: SearoomFont.metric(10),
+            color: theme.subdued
+        )
+    }
+
+    /// Where the card would actually land, taken from a layout of the proposed
+    /// order rather than guessed, so the rule cannot promise a position the
+    /// drop will not produce.
+    private func dropIndicatorRect(for drag: ActiveDrag) -> NSRect? {
+        let proposed = DashboardSection.reordered(
+            model.settings.dashboardSectionOrder,
+            moving: drag.section,
+            to: drag.insertionIndex
+        )
+        let layout = DashboardLayout.make(order: proposed, width: bounds.width)
+        guard let rect = layout.rect(for: drag.section) else { return nil }
+        return NSRect(x: rect.minX, y: rect.minY - 3, width: rect.width, height: 2)
+    }
+
     private func drawCardFrame(_ rect: NSRect, theme: SearoomTheme) {
         theme.ink.withAlphaComponent(0.38).setStroke()
         let border = NSBezierPath(rect: rect.integral)
@@ -843,16 +1015,16 @@ final class DashboardView: NSView {
         from previous: LivePresentation,
         to current: LivePresentation
     ) {
-        let margin: CGFloat = 12
-        let gap: CGFloat = 10
-        let cardWidth = (bounds.width - margin * 2 - gap) / 2
-        let cpu = NSRect(x: margin, y: 82, width: cardWidth, height: 158)
-        let memory = NSRect(x: margin + cardWidth + gap, y: 82, width: cardWidth, height: 158)
-        let gpu = NSRect(x: margin, y: 250, width: cardWidth, height: 158)
-        let thermal = NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158)
-        let gpuMemory = NSRect(x: margin, y: 418, width: cardWidth, height: 158)
-        let disk = NSRect(x: margin + cardWidth + gap, y: 418, width: cardWidth, height: 158)
-        let network = NSRect(x: margin, y: 586, width: bounds.width - margin * 2, height: 122)
+        let layout = currentLayout()
+        let cpu = layout.rect(for: .cpu) ?? .zero
+        let memory = layout.rect(for: .memory) ?? .zero
+        let gpu = layout.rect(for: .gpu) ?? .zero
+        let thermal = layout.rect(for: .thermal) ?? .zero
+        let gpuMemory = layout.rect(for: .gpuMemory) ?? .zero
+        let disk = layout.rect(for: .disk) ?? .zero
+        let network = layout.rect(for: .network) ?? .zero
+        let info = layout.rect(for: .info) ?? .zero
+        let extras = layout.rect(for: .extras) ?? .zero
 
         if previous.header != current.header || previous.headerDuration != current.headerDuration {
             invalidateVisible(NSRect(x: bounds.width * 0.5, y: 8, width: bounds.width * 0.5, height: 56))
@@ -867,13 +1039,20 @@ final class DashboardView: NSView {
             invalidateVisible(NSRect(x: network.minX + 2, y: network.minY + 5, width: network.width - 4, height: 54))
         }
         if previous.info != current.info {
-            invalidateVisible(NSRect(x: margin + 2, y: 723, width: bounds.width - margin * 2 - 4, height: 78))
+            invalidateVisible(info.insetBy(dx: 2, dy: 5))
         }
         if previous.extras != current.extras {
-            invalidateVisible(NSRect(x: margin + 2, y: 821, width: bounds.width - margin * 2 - 4, height: 170))
+            invalidateVisible(extras.insetBy(dx: 2, dy: 5))
         }
         if previous.ownProcess != current.ownProcess {
-            invalidateVisible(NSRect(x: margin + 7, y: 1012, width: bounds.width - margin * 2 - 9, height: 31))
+            // Asymmetric by design: the strip's text starts further in on the
+            // leading edge than it stops from the trailing one.
+            invalidateVisible(NSRect(
+                x: layout.selfRect.minX + 7,
+                y: layout.selfRect.minY + 6,
+                width: layout.selfRect.width - 9,
+                height: 31
+            ))
         }
 
         let cards = [cpu, memory, gpu, thermal, gpuMemory]
@@ -883,21 +1062,13 @@ final class DashboardView: NSView {
     }
 
     private func invalidateTrendRegions() {
-        let margin: CGFloat = 12
-        let gap: CGFloat = 10
-        let cardWidth = (bounds.width - margin * 2 - gap) / 2
-        for card in [
-            NSRect(x: margin, y: 82, width: cardWidth, height: 158),
-            NSRect(x: margin + cardWidth + gap, y: 82, width: cardWidth, height: 158),
-            NSRect(x: margin, y: 250, width: cardWidth, height: 158),
-            NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158),
-            NSRect(x: margin, y: 418, width: cardWidth, height: 158),
-            NSRect(x: margin + cardWidth + gap, y: 418, width: cardWidth, height: 158)
-        ] {
-            invalidateVisible(graphRect(for: card))
+        let layout = currentLayout()
+        for slot in layout.slots where !slot.section.isFullWidth {
+            invalidateVisible(graphRect(for: slot.rect))
         }
-        let network = NSRect(x: margin, y: 586, width: bounds.width - margin * 2, height: 122)
-        invalidateVisible(networkGraphRect(for: network))
+        if let network = layout.rect(for: .network) {
+            invalidateVisible(networkGraphRect(for: network))
+        }
     }
 
     private func invalidateVisible(_ rect: NSRect) {
@@ -1272,6 +1443,22 @@ final class DashboardView: NSView {
     private enum GraphScale {
         case percentage
         case temperature
+    }
+
+    /// A press that has not yet moved far enough to be a drag.
+    private struct DragCandidate {
+        let section: DashboardSection
+        let origin: NSPoint
+        let rect: NSRect
+    }
+
+    private struct ActiveDrag {
+        let section: DashboardSection
+        let rect: NSRect
+        /// Where in the card the pointer grabbed it, so the ghost does not jump.
+        let grabOffset: NSPoint
+        var point: NSPoint
+        var insertionIndex: Int
     }
 
     private struct GraphRegion {
