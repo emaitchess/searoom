@@ -23,6 +23,7 @@ final class DashboardView: NSView {
     private var cachedLayoutWidth: CGFloat = 0
     private var cachedLayoutOrder: [DashboardSection] = []
     private var dragCandidate: DragCandidate?
+    private var pendingUnitRegion: UnitRegion?
     private var activeDrag: ActiveDrag?
 
     /// Far enough that a click that wobbles is still a click.
@@ -315,31 +316,34 @@ final class DashboardView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if settingsRect.contains(point) { onOpenSettings?() }
-        else if activityMonitorRect.contains(point) { onOpenActivityMonitor?() }
-        else if quitRect.contains(point) { onQuit?() }
-        else if let region = unitRegions.first(where: { $0.hitRect.contains(point) }) {
-            model.cycleDashboardUnit(region.target)
-            livePresentation = makeLivePresentation()
-            invalidateVisible(region.displayRect)
-            updateHoverOverlays()
-            updateAccessibilitySummary()
-            setAccessibilityHelp(
-                "\(region.target.accessibilityName.capitalized) display unit: "
-                    + "\(model.dashboardUnitState.unitLabel(for: region.target))."
-            )
+        if settingsRect.contains(point) { onOpenSettings?(); return }
+        if activityMonitorRect.contains(point) { onOpenActivityMonitor?(); return }
+        if quitRect.contains(point) { onQuit?(); return }
+
+        // A press over a card is ambiguous, so nothing is decided here. Several
+        // unit hit rects are the whole card - memory, thermal, GPU memory, disk
+        // and network all are - so cycling units on the press would make those
+        // cards impossible to drag. Both intents are recorded and resolved on
+        // release: a drag past the threshold wins, otherwise it was a click.
+        pendingUnitRegion = unitRegions.first { $0.hitRect.contains(point) }
+        dragCandidate = currentLayout().slots
+            .first { $0.rect.contains(point) }
+            .map { DragCandidate(section: $0.section, origin: point, rect: $0.rect) }
+        if pendingUnitRegion == nil, dragCandidate == nil {
+            super.mouseDown(with: event)
         }
-        else if let slot = currentLayout().slots.first(where: { $0.rect.contains(point) }) {
-            // A press inside a section may become a drag. Unit regions are
-            // matched above this, so click-to-cycle keeps priority, and the
-            // threshold in mouseDragged is what separates a click from a drag.
-            dragCandidate = DragCandidate(
-                section: slot.section,
-                origin: point,
-                rect: slot.rect
-            )
-        }
-        else { super.mouseDown(with: event) }
+    }
+
+    private func cycleUnits(_ region: UnitRegion) {
+        model.cycleDashboardUnit(region.target)
+        livePresentation = makeLivePresentation()
+        invalidateVisible(region.displayRect)
+        updateHoverOverlays()
+        updateAccessibilitySummary()
+        setAccessibilityHelp(
+            "\(region.target.accessibilityName.capitalized) display unit: "
+                + "\(model.dashboardUnitState.unitLabel(for: region.target))."
+        )
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -351,6 +355,9 @@ final class DashboardView: NSView {
         if activeDrag == nil {
             let travelled = hypot(point.x - candidate.origin.x, point.y - candidate.origin.y)
             guard travelled >= Self.dragThreshold else { return }
+            // Past the threshold this is a drag, so the click it might have
+            // been is abandoned and no unit rotates on release.
+            pendingUnitRegion = nil
             clearHover()
             NSCursor.closedHand.set()
             activeDrag = ActiveDrag(
@@ -378,10 +385,16 @@ final class DashboardView: NSView {
     override func mouseUp(with event: NSEvent) {
         guard let drag = activeDrag else {
             dragCandidate = nil
+            if let region = pendingUnitRegion {
+                pendingUnitRegion = nil
+                cycleUnits(region)
+                return
+            }
             super.mouseUp(with: event)
             return
         }
         dragCandidate = nil
+        pendingUnitRegion = nil
         activeDrag = nil
         NSCursor.arrow.set()
         // Releasing outside the dashboard abandons the move rather than
@@ -398,6 +411,7 @@ final class DashboardView: NSView {
             return
         }
         dragCandidate = nil
+        pendingUnitRegion = nil
         activeDrag = nil
         NSCursor.arrow.set()
         needsDisplay = true

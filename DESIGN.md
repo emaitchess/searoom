@@ -225,7 +225,7 @@ Combines a plain-language state—All Clear, Busy, Constrained, Critical, or Che
 
 ### Metric card
 
-Shows one current reading, a concise qualifier, and a local trend. Missing values display `N/A` and a reason where space permits. Clicking a convertible byte, temperature, or throughput reading rotates only that reading's units; paired directions rotate together. A press that travels far enough becomes a drag that reorders the card; a press that does not is still a click, so unit rotation keeps priority. Unit selection is presentation state and must not reinterpret stored samples or trigger collection. Cards do not poll or own data; they render the shared sampled state.
+Shows one current reading, a concise qualifier, and a local trend. Missing values display `N/A` and a reason where space permits. Clicking a convertible byte, temperature, or throughput reading rotates only that reading's units; paired directions rotate together. Units rotate on release, not on press: a press that travels far enough becomes a drag that reorders the card, and one that does not is still a click that rotates the reading. Cards whose whole surface rotates a unit are draggable on the same terms as any other. Unit selection is presentation state and must not reinterpret stored samples or trigger collection. Cards do not poll or own data; they render the shared sampled state.
 
 ### Trend graph
 
