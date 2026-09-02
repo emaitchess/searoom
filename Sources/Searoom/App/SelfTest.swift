@@ -91,7 +91,13 @@ enum SelfTest {
         let legacySettings = Data("{\"sampleInterval\":5}".utf8)
         let decodedSettings = try? JSONDecoder().decode(AppSettings.self, from: legacySettings)
         check(decodedSettings?.historyMinutes == 30, "settings migration")
-        check(decodedSettings?.customMenuBarMetrics == MenuBarMetric.defaults, "custom metric migration")
+        check(decodedSettings?.menuBarMetrics == MenuBarMetric.defaults, "menu bar metric migration")
+        let presetSettings = Data("{\"menuBarPreset\":\"compute\"}".utf8)
+        let decodedPreset = try? JSONDecoder().decode(AppSettings.self, from: presetSettings)
+        check(decodedPreset?.menuBarMetrics == [.cpuUsage, .gpuUsage], "preset migration")
+        let minimalSettings = Data("{\"menuBarPreset\":\"minimal\"}".utf8)
+        let decodedMinimal = try? JSONDecoder().decode(AppSettings.self, from: minimalSettings)
+        check(decodedMinimal?.menuBarMetrics.isEmpty == true, "minimal preset migration")
         check(decodedSettings?.hasCompletedLaunchAtLoginPrompt == true, "launch prompt migration")
         check(AppSettings().hasCompletedLaunchAtLoginPrompt == false, "fresh launch prompt default")
         let invalidSettings = Data("{\"sampleInterval\":0,\"historyMinutes\":999999}".utf8)
@@ -105,7 +111,7 @@ enum SelfTest {
             AppSettings.self,
             from: futureMetricSettings
         )
-        check(decodedFutureMetrics?.customMenuBarMetrics == [.cpuUsage], "future metric migration")
+        check(decodedFutureMetrics?.menuBarMetrics == [.cpuUsage], "future metric migration")
         check(MenuBarMetric.memoryFreeUsed.title == "RAM Free / Used", "combined RAM metric")
         check(MenuBarMetric.gpuMemory.title == "GPU Memory", "GPU memory metric title")
         check(MenuBarMetric.diskFree.title == "Disk Free", "disk free metric title")

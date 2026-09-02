@@ -57,45 +57,45 @@ enum MenuBarMetric: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    static let maximumCount = 5
+
+    /// Drops duplicates and anything past the cap. An empty result is returned
+    /// as empty rather than replaced with the defaults: selecting nothing is a
+    /// deliberate choice that means the mark-only status item. Only a *missing*
+    /// stored key falls back to `defaults`, which the decoder handles.
     static func normalized(_ metrics: [MenuBarMetric]) -> [MenuBarMetric] {
         var seen = Set<MenuBarMetric>()
         var result: [MenuBarMetric] = []
         for metric in metrics where seen.insert(metric).inserted {
             result.append(metric)
-            if result.count == 3 { break }
+            if result.count == maximumCount { break }
         }
-        return result.isEmpty ? defaults : result
+        return result
     }
-}
 
-enum MenuBarPreset: String, CaseIterable, Codable, Sendable {
-    case balanced
-    case reserve
-    case pressure
-    case llm
-    case compute
-    case network
-    case disk
-    case swap
-    case thermal
-    case power
-    case custom
-    case minimal
-
-    var title: String {
-        switch self {
-        case .balanced: "Balanced"
-        case .reserve: "Reserve"
-        case .pressure: "Pressure"
-        case .llm: "LLM"
-        case .compute: "Compute"
-        case .network: "Network"
-        case .disk: "Disk I/O"
-        case .swap: "Swap Activity"
-        case .thermal: "Thermal"
-        case .power: "Power"
-        case .custom: "Custom"
-        case .minimal: "Minimal"
+    /// Translates a pre-0.3 archive, which described the menu bar with a preset
+    /// name, into the equivalent metric list. Each row reproduces exactly what
+    /// that preset rendered, so an upgrade shows what it showed before.
+    ///
+    /// `llm` is the one lossy row: it drew `RAM used/total`, which no single
+    /// metric expresses, so the total is lost.
+    static func migrated(preset: String?, custom: [MenuBarMetric]?) -> [MenuBarMetric] {
+        switch preset {
+        case "custom": normalized(custom ?? defaults)
+        case "minimal": []
+        case "balanced": [.cpuUsage, .memoryUsed]
+        case "reserve": [.memoryFree, .swapUsed]
+        case "pressure": [.memoryPressure, .thermalPressure]
+        case "llm": [.memoryUsed, .temperature, .gpuMemory]
+        case "compute": [.cpuUsage, .gpuUsage]
+        case "network": [.networkDownload, .networkUpload]
+        case "disk": [.diskRead, .diskWrite]
+        case "swap": [.swapIn, .swapOut]
+        case "thermal": [.temperature, .fan]
+        case "power": [.power]
+        // A fresh install, or a preset some future build invented. Any stored
+        // selection is more faithful than the defaults, so prefer it.
+        default: custom.map(normalized) ?? defaults
         }
     }
 }
@@ -105,27 +105,24 @@ struct AppSettings: Codable, Equatable, Sendable {
     static let supportedHistoryMinutes = [15, 30, 60, 180]
 
     var sampleInterval: TimeInterval
-    var menuBarPreset: MenuBarPreset
     var historyMinutes: Int
     var globalShortcut: GlobalShortcut?
-    var customMenuBarMetrics: [MenuBarMetric]
+    var menuBarMetrics: [MenuBarMetric]
     var dashboardSectionOrder: [DashboardSection]
     var hasCompletedLaunchAtLoginPrompt: Bool
 
     init(
         sampleInterval: TimeInterval = 2,
-        menuBarPreset: MenuBarPreset = .balanced,
         historyMinutes: Int = 30,
         globalShortcut: GlobalShortcut? = nil,
-        customMenuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults,
+        menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults,
         dashboardSectionOrder: [DashboardSection] = DashboardSection.defaults,
         hasCompletedLaunchAtLoginPrompt: Bool = false
     ) {
         self.sampleInterval = sampleInterval
-        self.menuBarPreset = menuBarPreset
         self.historyMinutes = historyMinutes
         self.globalShortcut = globalShortcut
-        self.customMenuBarMetrics = MenuBarMetric.normalized(customMenuBarMetrics)
+        self.menuBarMetrics = MenuBarMetric.normalized(menuBarMetrics)
         self.dashboardSectionOrder = DashboardSection.normalized(dashboardSectionOrder)
         self.hasCompletedLaunchAtLoginPrompt = hasCompletedLaunchAtLoginPrompt
         normalize()
@@ -134,16 +131,22 @@ struct AppSettings: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         sampleInterval = try values.decodeIfPresent(TimeInterval.self, forKey: .sampleInterval) ?? 2
-        menuBarPreset = try values.decodeIfPresent(MenuBarPreset.self, forKey: .menuBarPreset) ?? .balanced
         historyMinutes = try values.decodeIfPresent(Int.self, forKey: .historyMinutes) ?? 30
         globalShortcut = try values.decodeIfPresent(GlobalShortcut.self, forKey: .globalShortcut)
-        let customMetricNames = try values.decodeIfPresent(
-            [String].self,
-            forKey: .customMenuBarMetrics
-        )
-        let customMetrics = customMetricNames?.compactMap(MenuBarMetric.init(rawValue:))
-            ?? MenuBarMetric.defaults
-        customMenuBarMetrics = MenuBarMetric.normalized(customMetrics)
+        // Menu-bar metrics replaced the preset system. Read the current key
+        // when it is there; otherwise translate whatever the old build stored,
+        // so an upgrade keeps showing what it showed before. Decoding by raw
+        // name means a metric retired later is dropped rather than failing the
+        // whole archive.
+        if let names = try values.decodeIfPresent([String].self, forKey: .menuBarMetrics) {
+            menuBarMetrics = MenuBarMetric.normalized(names.compactMap(MenuBarMetric.init(rawValue:)))
+        } else {
+            let legacyNames = try values.decodeIfPresent([String].self, forKey: .customMenuBarMetrics)
+            menuBarMetrics = MenuBarMetric.migrated(
+                preset: try values.decodeIfPresent(String.self, forKey: .menuBarPreset),
+                custom: legacyNames?.compactMap(MenuBarMetric.init(rawValue:))
+            )
+        }
         // Decoded by raw name so a section retired in a later build is dropped
         // rather than failing the whole archive; normalization refills the gap.
         let sectionNames = try values.decodeIfPresent([String].self, forKey: .dashboardSectionOrder)
@@ -163,28 +166,29 @@ struct AppSettings: Codable, Equatable, Sendable {
             sampleInterval = 2
         }
         if !Self.supportedHistoryMinutes.contains(historyMinutes) { historyMinutes = 30 }
-        customMenuBarMetrics = MenuBarMetric.normalized(customMenuBarMetrics)
+        menuBarMetrics = MenuBarMetric.normalized(menuBarMetrics)
         dashboardSectionOrder = DashboardSection.normalized(dashboardSectionOrder)
     }
 
     func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(sampleInterval, forKey: .sampleInterval)
-        try values.encode(menuBarPreset, forKey: .menuBarPreset)
         try values.encode(historyMinutes, forKey: .historyMinutes)
         try values.encodeIfPresent(globalShortcut, forKey: .globalShortcut)
-        try values.encode(customMenuBarMetrics, forKey: .customMenuBarMetrics)
+        try values.encode(menuBarMetrics, forKey: .menuBarMetrics)
         try values.encode(dashboardSectionOrder, forKey: .dashboardSectionOrder)
         try values.encode(hasCompletedLaunchAtLoginPrompt, forKey: .hasCompletedLaunchAtLoginPrompt)
     }
 
     private enum CodingKeys: String, CodingKey {
         case sampleInterval
-        case menuBarPreset
         case historyMinutes
         case globalShortcut
-        case customMenuBarMetrics
+        case menuBarMetrics
         case dashboardSectionOrder
+        // Read during migration, never written again.
+        case menuBarPreset
+        case customMenuBarMetrics
         case hasCompletedLaunchAtLoginPrompt
     }
 }

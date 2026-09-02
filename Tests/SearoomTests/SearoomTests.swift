@@ -126,11 +126,70 @@ final class SearoomTests: XCTestCase {
         )
     }
 
-    func testMenuBarPresetsRoundTrip() throws {
-        for preset in MenuBarPreset.allCases {
-            let encoded = try JSONEncoder().encode(preset)
-            XCTAssertEqual(try JSONDecoder().decode(MenuBarPreset.self, from: encoded), preset)
+    // One row per preset that used to exist. An upgrade must keep showing what
+    // it showed before, and this is the only thing standing between a user and
+    // a silently rearranged menu bar.
+    func testEveryLegacyPresetMigratesToItsMetrics() throws {
+        let expected: [String: [MenuBarMetric]] = [
+            "balanced": [.cpuUsage, .memoryUsed],
+            "reserve": [.memoryFree, .swapUsed],
+            "pressure": [.memoryPressure, .thermalPressure],
+            "llm": [.memoryUsed, .temperature, .gpuMemory],
+            "compute": [.cpuUsage, .gpuUsage],
+            "network": [.networkDownload, .networkUpload],
+            "disk": [.diskRead, .diskWrite],
+            "swap": [.swapIn, .swapOut],
+            "thermal": [.temperature, .fan],
+            "power": [.power],
+            "minimal": []
+        ]
+        for (preset, metrics) in expected {
+            let archive = Data("{\"menuBarPreset\":\"\(preset)\"}".utf8)
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: archive)
+            XCTAssertEqual(decoded.menuBarMetrics, metrics, "\(preset) migrated wrongly")
         }
+
+        // Custom carried its own list, which survives intact.
+        let custom = Data(
+            "{\"menuBarPreset\":\"custom\",\"customMenuBarMetrics\":[\"gpuUsage\",\"uptime\"]}".utf8
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(AppSettings.self, from: custom).menuBarMetrics,
+            [.gpuUsage, .uptime]
+        )
+
+        // A preset a later build invented falls back to any stored selection,
+        // and to the defaults when there is none.
+        let unknown = Data("{\"menuBarPreset\":\"holographic\"}".utf8)
+        XCTAssertEqual(
+            try JSONDecoder().decode(AppSettings.self, from: unknown).menuBarMetrics,
+            MenuBarMetric.defaults
+        )
+    }
+
+    func testMenuBarMetricSelectionIsCappedAndMayBeEmpty() throws {
+        XCTAssertEqual(MenuBarMetric.maximumCount, 5)
+        let tooMany: [MenuBarMetric] = [
+            .cpuUsage, .memoryUsed, .temperature, .gpuUsage, .diskFree, .uptime
+        ]
+        XCTAssertEqual(MenuBarMetric.normalized(tooMany).count, 5)
+        XCTAssertEqual(MenuBarMetric.normalized(tooMany), Array(tooMany.prefix(5)))
+        XCTAssertEqual(MenuBarMetric.normalized([.cpuUsage, .cpuUsage]), [.cpuUsage])
+
+        // Empty is a deliberate selection meaning the mark-only item, so it
+        // must survive rather than reverting to the defaults.
+        XCTAssertEqual(MenuBarMetric.normalized([]), [])
+        var settings = AppSettings()
+        settings.menuBarMetrics = []
+        let round = try JSONDecoder().decode(
+            AppSettings.self,
+            from: try JSONEncoder().encode(settings)
+        )
+        XCTAssertEqual(round.menuBarMetrics, [])
+
+        // A missing key is a different case entirely and still gives defaults.
+        let fresh = try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        XCTAssertEqual(fresh.menuBarMetrics, MenuBarMetric.defaults)
     }
 
     func testInvalidSettingsFallBackToBoundedDefaults() throws {
@@ -190,23 +249,22 @@ final class SearoomTests: XCTestCase {
         XCTAssertFalse(ShortcutModifiers().hasPrimaryModifier)
     }
 
-    func testCustomMenuBarMetricsRoundTripAndMigration() throws {
+    func testMenuBarMetricsRoundTripAndMigration() throws {
         var settings = AppSettings()
-        settings.menuBarPreset = .custom
-        settings.customMenuBarMetrics = [.cpuUsage, .memoryUsed, .temperature]
+        settings.menuBarMetrics = [.cpuUsage, .memoryUsed, .temperature, .gpuUsage, .diskFree]
 
         let encoded = try JSONEncoder().encode(settings)
         XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: encoded), settings)
 
         let legacy = Data("{\"sampleInterval\":5}".utf8)
         let migrated = try JSONDecoder().decode(AppSettings.self, from: legacy)
-        XCTAssertEqual(migrated.customMenuBarMetrics, MenuBarMetric.defaults)
+        XCTAssertEqual(migrated.menuBarMetrics, MenuBarMetric.defaults)
 
         let futureMetric = Data(
-            "{\"customMenuBarMetrics\":[\"cpuUsage\",\"futureMetric\"]}".utf8
+            "{\"menuBarMetrics\":[\"cpuUsage\",\"futureMetric\"]}".utf8
         )
         let forwardCompatible = try JSONDecoder().decode(AppSettings.self, from: futureMetric)
-        XCTAssertEqual(forwardCompatible.customMenuBarMetrics, [.cpuUsage])
+        XCTAssertEqual(forwardCompatible.menuBarMetrics, [.cpuUsage])
     }
 
     func testLaunchAtLoginPromptStateRoundTripAndMigration() throws {
@@ -248,15 +306,19 @@ final class SearoomTests: XCTestCase {
         ))
     }
 
-    func testCustomMenuBarMetricsAreBoundedAndUnique() {
-        XCTAssertEqual(MenuBarMetric.normalized([]), MenuBarMetric.defaults)
+    func testMenuBarMetricsAreBoundedAndUnique() {
+        // Empty now means the mark-only item rather than a mistake, so it is
+        // preserved. Only a missing stored key falls back to the defaults, and
+        // testMenuBarMetricSelectionIsCappedAndMayBeEmpty covers that.
+        XCTAssertEqual(MenuBarMetric.normalized([]), [])
         XCTAssertEqual(
             MenuBarMetric.normalized([.cpuUsage, .cpuUsage, .temperature, .gpuUsage]),
             [.cpuUsage, .temperature, .gpuUsage]
         )
         XCTAssertEqual(
             MenuBarMetric.normalized([.cpuUsage, .memoryUsed, .temperature, .gpuUsage]),
-            [.cpuUsage, .memoryUsed, .temperature]
+            [.cpuUsage, .memoryUsed, .temperature, .gpuUsage],
+            "four fits under the cap of five"
         )
     }
 

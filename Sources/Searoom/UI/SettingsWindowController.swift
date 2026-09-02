@@ -6,8 +6,14 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     NSTableViewDataSource, NSTableViewDelegate {
     private let model: AppModel
     private let shortcutManager: GlobalShortcutManager
-    private let presetPopUp = NSPopUpButton()
-    private let customMetricPopUps = [NSPopUpButton(), NSPopUpButton(), NSPopUpButton()]
+    private let metricTable = NSTableView()
+    private let metricScroll = NSScrollView()
+    private let addMetricPopUp = NSPopUpButton()
+    private let moveMetricUpButton = NSButton(title: "Move Up", target: nil, action: nil)
+    private let moveMetricDownButton = NSButton(title: "Move Down", target: nil, action: nil)
+    private let removeMetricButton = NSButton(title: "Remove", target: nil, action: nil)
+    private let metricPreview = NSTextField(labelWithString: "")
+    private var menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults
     private let intervalPopUp = NSPopUpButton()
     private let historyPopUp = NSPopUpButton()
     private let shortcutRecorder = ShortcutRecorderControl()
@@ -31,7 +37,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         self.model = model
         self.shortcutManager = shortcutManager
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 470, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 470, height: 720),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -69,22 +75,57 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         heading.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(heading)
 
-        presetPopUp.addItems(withTitles: MenuBarPreset.allCases.map(\.title))
-        for (index, popUp) in customMetricPopUps.enumerated() {
-            popUp.addItem(withTitle: "None")
-            popUp.addItems(withTitles: MenuBarMetric.allCases.map(\.title))
-            popUp.target = self
-            popUp.action = #selector(customMetricChanged)
-            popUp.controlSize = .small
-            popUp.font = SearoomFont.system(11)
-            popUp.setAccessibilityLabel("Custom menu-bar metric \(index + 1)")
+        let metricColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metric"))
+        metricTable.addTableColumn(metricColumn)
+        metricTable.headerView = nil
+        metricTable.rowHeight = 18
+        metricTable.dataSource = self
+        metricTable.delegate = self
+        metricTable.allowsMultipleSelection = false
+        metricTable.style = .plain
+        metricTable.setAccessibilityLabel("Menu bar metrics, in order")
+        metricScroll.documentView = metricTable
+        metricScroll.hasVerticalScroller = true
+        metricScroll.borderType = .bezelBorder
+        metricScroll.translatesAutoresizingMaskIntoConstraints = false
+        metricScroll.heightAnchor.constraint(equalToConstant: 96).isActive = true
+
+        addMetricPopUp.target = self
+        addMetricPopUp.action = #selector(addMetric)
+        addMetricPopUp.controlSize = .small
+        addMetricPopUp.font = SearoomFont.system(11)
+        addMetricPopUp.setAccessibilityLabel("Add a menu-bar metric")
+        for button in [moveMetricUpButton, moveMetricDownButton, removeMetricButton] {
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.target = self
         }
-        let customMetricControls = NSStackView(views: customMetricPopUps)
-        customMetricControls.orientation = .horizontal
-        customMetricControls.alignment = .centerY
-        customMetricControls.distribution = .fillEqually
-        customMetricControls.spacing = 6
-        customMetricControls.toolTip = "Choose Custom above, then select up to three menu-bar metrics."
+        moveMetricUpButton.action = #selector(moveMetricUp)
+        moveMetricDownButton.action = #selector(moveMetricDown)
+        removeMetricButton.action = #selector(removeMetric)
+        moveMetricUpButton.setAccessibilityLabel("Move the selected metric earlier")
+        moveMetricDownButton.setAccessibilityLabel("Move the selected metric later")
+        removeMetricButton.setAccessibilityLabel("Remove the selected metric")
+
+        // Shows the string the status item is actually rendering, so the width
+        // cost of five metrics is visible before it reaches the menu bar.
+        metricPreview.font = SearoomFont.metric(10)
+        metricPreview.textColor = .secondaryLabelColor
+        metricPreview.lineBreakMode = .byTruncatingTail
+        metricPreview.setAccessibilityLabel("Menu bar preview")
+
+        let metricButtons = NSStackView(views: [
+            addMetricPopUp, moveMetricUpButton, moveMetricDownButton, removeMetricButton
+        ])
+        metricButtons.orientation = .horizontal
+        metricButtons.alignment = .centerY
+        metricButtons.spacing = 6
+        let metricControls = NSStackView(views: [metricScroll, metricButtons, metricPreview])
+        metricControls.orientation = .vertical
+        metricControls.alignment = .leading
+        metricControls.spacing = 6
+        metricControls.toolTip =
+            "Choose up to \(MenuBarMetric.maximumCount) metrics. With none chosen the menu bar shows only the Searoom mark."
         intervalPopUp.addItems(withTitles: ["1 second", "2 seconds", "5 seconds", "10 seconds"])
         historyPopUp.addItems(withTitles: ["15 minutes", "30 minutes", "1 hour", "3 hours"])
         shortcutRecorder.onChange = { [weak self] shortcut in
@@ -111,8 +152,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         shortcutGroup.alignment = .width
         shortcutGroup.spacing = 3
 
-        presetPopUp.target = self
-        presetPopUp.action = #selector(presetChanged)
         intervalPopUp.target = self
         intervalPopUp.action = #selector(intervalChanged)
         historyPopUp.target = self
@@ -173,8 +212,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         orderGroup.toolTip = "Cards can also be dragged directly on the dashboard."
 
         let grid = NSGridView(views: [
-            [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), presetPopUp],
-            [makeLabel("CUSTOM METRICS", size: 10, color: .secondaryLabelColor), customMetricControls],
+            [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), metricControls],
             [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
             [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalPopUp],
             [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyPopUp],
@@ -270,8 +308,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     }
 
     private func syncFromModel() {
-        presetPopUp.selectItem(at: MenuBarPreset.allCases.firstIndex(of: model.settings.menuBarPreset) ?? 0)
-        syncCustomMetricControls()
+        menuBarMetrics = model.settings.menuBarMetrics
+        metricTable.reloadData()
+        syncMetricControls()
         let intervals = AppSettings.supportedSampleIntervals
         intervalPopUp.selectItem(at: intervals.firstIndex(of: model.settings.sampleInterval) ?? 1)
         let historyValues = AppSettings.supportedHistoryMinutes
@@ -319,53 +358,87 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         syncOrderButtons()
     }
 
-    func numberOfRows(in tableView: NSTableView) -> Int { sectionOrder.count }
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        tableView === metricTable ? menuBarMetrics.count : sectionOrder.count
+    }
 
     func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
-        guard sectionOrder.indices.contains(row) else { return nil }
-        let label = NSTextField(labelWithString: sectionOrder[row].title)
+        let titles = tableView === metricTable
+            ? menuBarMetrics.map(\.title)
+            : sectionOrder.map(\.title)
+        guard titles.indices.contains(row) else { return nil }
+        let label = NSTextField(labelWithString: titles[row])
         label.font = .systemFont(ofSize: 11)
-        label.setAccessibilityLabel("\(sectionOrder[row].title), position \(row + 1) of \(sectionOrder.count)")
+        label.setAccessibilityLabel("\(titles[row]), position \(row + 1) of \(titles.count)")
         return label
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        syncOrderButtons()
+        guard let tableView = notification.object as? NSTableView else { return }
+        if tableView === metricTable { syncMetricControls() } else { syncOrderButtons() }
     }
 
-    @objc private func presetChanged() {
-        let preset = MenuBarPreset.allCases[max(0, presetPopUp.indexOfSelectedItem)]
-        model.updateSettings { $0.menuBarPreset = preset }
-        syncCustomMetricControls()
+    private func applyMenuBarMetrics(_ metrics: [MenuBarMetric], select row: Int?) {
+        model.updateSettings { $0.menuBarMetrics = MenuBarMetric.normalized(metrics) }
+        menuBarMetrics = model.settings.menuBarMetrics
+        metricTable.reloadData()
+        if let row, menuBarMetrics.indices.contains(row) {
+            metricTable.selectRowIndexes([row], byExtendingSelection: false)
+        }
+        syncMetricControls()
     }
 
-    @objc private func customMetricChanged() {
-        let metrics = customMetricPopUps.compactMap { popUp -> MenuBarMetric? in
-            let index = popUp.indexOfSelectedItem - 1
-            guard MenuBarMetric.allCases.indices.contains(index) else { return nil }
-            return MenuBarMetric.allCases[index]
-        }
-        model.updateSettings {
-            $0.customMenuBarMetrics = MenuBarMetric.normalized(metrics)
-            $0.menuBarPreset = .custom
-        }
-        presetPopUp.selectItem(at: MenuBarPreset.allCases.firstIndex(of: .custom) ?? 0)
-        syncCustomMetricControls()
+    /// Rebuilds the add list and the enabled states. The popup lists only what
+    /// is not already chosen, so a duplicate cannot be requested.
+    private func syncMetricControls() {
+        let available = MenuBarMetric.allCases.filter { !menuBarMetrics.contains($0) }
+        addMetricPopUp.removeAllItems()
+        addMetricPopUp.addItem(withTitle: "Add Metric…")
+        addMetricPopUp.addItems(withTitles: available.map(\.title))
+        addMetricPopUp.selectItem(at: 0)
+        addMetricPopUp.isEnabled = !available.isEmpty
+            && menuBarMetrics.count < MenuBarMetric.maximumCount
+
+        let row = metricTable.selectedRow
+        let hasSelection = menuBarMetrics.indices.contains(row)
+        moveMetricUpButton.isEnabled = hasSelection && row > 0
+        moveMetricDownButton.isEnabled = hasSelection && row < menuBarMetrics.count - 1
+        removeMetricButton.isEnabled = hasSelection
+
+        metricPreview.stringValue = menuBarMetrics.isEmpty
+            ? "Mark only"
+            : model.menuBarText
+        metricPreview.toolTip = "\(menuBarMetrics.count) of \(MenuBarMetric.maximumCount) selected"
     }
 
-    private func syncCustomMetricControls() {
-        for (index, popUp) in customMetricPopUps.enumerated() {
-            if model.settings.customMenuBarMetrics.indices.contains(index),
-               let metricIndex = MenuBarMetric.allCases.firstIndex(
-                of: model.settings.customMenuBarMetrics[index]
-               ) {
-                popUp.selectItem(at: metricIndex + 1)
-            } else {
-                popUp.selectItem(at: 0)
-            }
-            popUp.isEnabled = model.settings.menuBarPreset == .custom
-        }
+    @objc private func addMetric() {
+        let available = MenuBarMetric.allCases.filter { !menuBarMetrics.contains($0) }
+        let index = addMetricPopUp.indexOfSelectedItem - 1
+        guard available.indices.contains(index) else { return }
+        applyMenuBarMetrics(menuBarMetrics + [available[index]], select: menuBarMetrics.count)
     }
+
+    @objc private func removeMetric() {
+        let row = metricTable.selectedRow
+        guard menuBarMetrics.indices.contains(row) else { return }
+        var metrics = menuBarMetrics
+        metrics.remove(at: row)
+        applyMenuBarMetrics(metrics, select: min(row, metrics.count - 1))
+    }
+
+    private func moveMetric(by offset: Int) {
+        let row = metricTable.selectedRow
+        let destination = row + offset
+        guard menuBarMetrics.indices.contains(row),
+              menuBarMetrics.indices.contains(destination) else { return }
+        var metrics = menuBarMetrics
+        metrics.swapAt(row, destination)
+        applyMenuBarMetrics(metrics, select: destination)
+    }
+
+    @objc private func moveMetricUp() { moveMetric(by: -1) }
+
+    @objc private func moveMetricDown() { moveMetric(by: 1) }
 
     @objc private func intervalChanged() {
         let values = AppSettings.supportedSampleIntervals

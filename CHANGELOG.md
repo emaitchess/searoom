@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The menu bar is no longer built from presets. Choose up to five metrics in
+  any order, in Settings or from the status item's Menu Bar submenu. Choosing
+  none shows the Searoom mark alone, which is what Minimal used to be.
+- Existing settings migrate to the equivalent metric list, so the menu bar
+  keeps showing what it showed before. The LLM preset is the one imperfect
+  case: it drew `RAM used/total`, which no single metric expresses, so it
+  becomes RAM used, temperature, and GPU memory, and the total is lost.
+
 ### Added
 
 - Dashboard cards can be rearranged. Drag a card to move it, or use the card

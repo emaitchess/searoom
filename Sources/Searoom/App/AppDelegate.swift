@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private let metricsEngine = MetricsEngine()
     private var lastStatusComponents: [MenuBarComponent] = []
     private var lastStatusLevel = PressureLevel.unavailable
-    private var lastStatusPreset: MenuBarPreset?
+    private var lastStatusMarkOnly: Bool?
     private var lastStatusAppearance: NSAppearance.Name?
     private var lastAccessibilityValue = ""
     private var activeSampleInterval: TimeInterval?
@@ -42,9 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             button.action = #selector(statusItemClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.imageHugsTitle = true
-            let usesMinimalPreset = model.settings.menuBarPreset == .minimal
-            button.imagePosition = usesMinimalPreset ? .imageOnly : .imageLeading
-            button.image = usesMinimalPreset
+            // No metrics selected means the mark-only item that Minimal used
+            // to be; the status dot belongs to the text form.
+            let isMarkOnly = model.settings.menuBarMetrics.isEmpty
+            button.imagePosition = isMarkOnly ? .imageOnly : .imageLeading
+            button.image = isMarkOnly
                 ? SearoomIcon.image(for: .unavailable)
                 : SearoomStatusDot.image(for: .unavailable, appearance: button.effectiveAppearance)
             button.toolTip = "Searoom is collecting system telemetry"
@@ -123,10 +125,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         showSettingsWindow()
     }
 
-    @objc private func selectPreset(_ sender: NSMenuItem) {
-        guard let preset = sender.representedObject as? String,
-              let selected = MenuBarPreset(rawValue: preset) else { return }
-        model.updateSettings { $0.menuBarPreset = selected }
+    @objc private func toggleMenuBarMetric(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String,
+              let metric = MenuBarMetric(rawValue: name) else { return }
+        var metrics = model.settings.menuBarMetrics
+        if let index = metrics.firstIndex(of: metric) {
+            metrics.remove(at: index)
+        } else {
+            guard metrics.count < MenuBarMetric.maximumCount else { return }
+            metrics.append(metric)
+        }
+        model.updateSettings { $0.menuBarMetrics = metrics }
+    }
+
+    @objc private func showOnlyTheMark() {
+        model.updateSettings { $0.menuBarMetrics = [] }
     }
 
     @objc private func showAbout() {
@@ -248,24 +261,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func updateStatusItem() {
         guard let button = statusItem?.button else { return }
         let sample = model.currentSample
-        let preset = model.settings.menuBarPreset
-        let components = menuBarComponents(sample: sample, preset: preset)
+        let isMarkOnly = model.settings.menuBarMetrics.isEmpty
+        let components = menuBarComponents(sample: sample)
         let text = components.map(\.text).joined(separator: "·")
+        model.setMenuBarText(text)
         let level = sample.overallPressureLevel
         let appearance = button.effectiveAppearance
             .bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
         let appearanceChanged = appearance != lastStatusAppearance
         let presentationChanged = level != lastStatusLevel
-            || preset != lastStatusPreset
+            || isMarkOnly != lastStatusMarkOnly
             || appearanceChanged
 
-        let desiredLength = preset == .minimal
+        let desiredLength = isMarkOnly
             ? NSStatusItem.squareLength
             : NSStatusItem.variableLength
         if statusItem.length != desiredLength { statusItem.length = desiredLength }
-        button.alignment = preset == .minimal ? .center : .left
+        button.alignment = isMarkOnly ? .center : .left
 
-        if preset == .minimal {
+        if isMarkOnly {
             button.imagePosition = .imageOnly
             if presentationChanged || button.image == nil {
                 button.image = SearoomIcon.image(for: level)
@@ -287,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             lastStatusComponents = components
         }
         lastStatusLevel = level
-        lastStatusPreset = preset
+        lastStatusMarkOnly = isMarkOnly
         lastStatusAppearance = appearance
         let accessibilityValue = accessibilityDescription(for: sample, statusText: text)
         if accessibilityValue != lastAccessibilityValue {
@@ -298,74 +312,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
     }
 
-    private func menuBarComponents(
-        sample: SystemSample,
-        preset: MenuBarPreset
-    ) -> [MenuBarComponent] {
-        switch preset {
-        case .balanced:
-            [
-                component(
-                    "CPU \(menuPercent(sample.cpuUsage))",
-                    pressure: usageLevel(sample.cpuUsage)
-                ),
-                component("RAM \(menuBytes(sample.memoryUsed))", pressure: sample.memoryPressureLevel)
-            ]
-        case .reserve:
-            [
-                component("FREE \(menuBytes(sample.memoryAvailable))", pressure: sample.memoryPressureLevel),
-                component("SWAP \(menuBytes(sample.swapUsed))", pressure: sample.memoryPressureLevel)
-            ]
-        case .pressure:
-            [
-                component("MEM \(menuPressure(sample.memoryPressureLevel))", pressure: sample.memoryPressureLevel),
-                component("THERM \(menuPressure(sample.thermalPressureLevel))", pressure: sample.thermalPressureLevel)
-            ]
-        case .llm:
-            [
-                component(
-                    "RAM \(menuBytes(sample.memoryUsed))/\(menuBytes(sample.memoryTotal))",
-                    pressure: sample.memoryPressureLevel
-                ),
-                component(compactTemperature(sample), pressure: sample.thermalPressureLevel),
-                component("VRAM \(menuOptionalBytes(sample.gpuMemoryUsedBytes))", pressure: sample.gpuPressureLevel)
-            ]
-        case .compute:
-            [
-                component(
-                    "CPU \(menuPercent(sample.cpuUsage))",
-                    pressure: usageLevel(sample.cpuUsage)
-                ),
-                component("GPU \(menuPercent(sample.gpuUsage))", pressure: sample.gpuPressureLevel)
-            ]
-        case .network:
-            [
-                activityComponent("↓\(menuRate(sample.networkDownloadPerSecond))", value: sample.networkDownloadPerSecond),
-                activityComponent("↑\(menuRate(sample.networkUploadPerSecond))", value: sample.networkUploadPerSecond)
-            ]
-        case .disk:
-            [
-                activityComponent("R \(menuRate(sample.diskReadPerSecond))", value: sample.diskReadPerSecond),
-                activityComponent("W \(menuRate(sample.diskWritePerSecond))", value: sample.diskWritePerSecond)
-            ]
-        case .swap:
-            [
-                component("IN \(menuRate(sample.swapInPerSecond))", pressure: swapLevel(sample.swapInPerSecond, sample: sample)),
-                component("OUT \(menuRate(sample.swapOutPerSecond))", pressure: swapLevel(sample.swapOutPerSecond, sample: sample))
-            ]
-        case .thermal:
-            [
-                component(compactTemperature(sample), pressure: sample.thermalPressureLevel),
-                component("FAN \(menuFan(sample))", pressure: fanLevel(sample))
-            ]
-        case .power:
-            powerComponents(sample)
-        case .custom:
-            model.settings.customMenuBarMetrics
-                .flatMap { customMetricComponents($0, sample: sample) }
-        case .minimal:
-            []
-        }
+    /// The menu bar is exactly the chosen metrics, in the chosen order. One
+    /// metric can render as more than one group - `power` yields the source and
+    /// Low Power Mode - so the cap of five is on selections, not on groups.
+    private func menuBarComponents(sample: SystemSample) -> [MenuBarComponent] {
+        model.settings.menuBarMetrics.flatMap { customMetricComponents($0, sample: sample) }
     }
 
     private func attributedMenuBarTitle(
@@ -625,17 +576,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         openItem.target = self
         menu.addItem(openItem)
 
-        let presetsItem = NSMenuItem(title: "Menu Bar", action: nil, keyEquivalent: "")
-        let presetsMenu = NSMenu(title: "Menu Bar")
-        for preset in MenuBarPreset.allCases {
-            let item = NSMenuItem(title: preset.title, action: #selector(selectPreset(_:)), keyEquivalent: "")
+        let metricsItem = NSMenuItem(title: "Menu Bar", action: nil, keyEquivalent: "")
+        let metricsMenu = NSMenu(title: "Menu Bar")
+        let selected = model.settings.menuBarMetrics
+        let isFull = selected.count >= MenuBarMetric.maximumCount
+        for metric in MenuBarMetric.allCases {
+            let item = NSMenuItem(
+                title: metric.title,
+                action: #selector(toggleMenuBarMetric(_:)),
+                keyEquivalent: ""
+            )
             item.target = self
-            item.representedObject = preset.rawValue
-            item.state = preset == model.settings.menuBarPreset ? .on : .off
-            presetsMenu.addItem(item)
+            item.representedObject = metric.rawValue
+            let isSelected = selected.contains(metric)
+            item.state = isSelected ? .on : .off
+            // At the cap, only the already-chosen stay actionable, so the only
+            // way forward is to remove one first.
+            item.isEnabled = isSelected || !isFull
+            metricsMenu.addItem(item)
         }
-        presetsItem.submenu = presetsMenu
-        menu.addItem(presetsItem)
+        metricsMenu.addItem(.separator())
+        let markItem = NSMenuItem(
+            title: "Show Only the Mark",
+            action: #selector(showOnlyTheMark),
+            keyEquivalent: ""
+        )
+        markItem.target = self
+        markItem.state = selected.isEmpty ? .on : .off
+        metricsMenu.addItem(markItem)
+        metricsItem.submenu = metricsMenu
+        menu.addItem(metricsItem)
 
         menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")

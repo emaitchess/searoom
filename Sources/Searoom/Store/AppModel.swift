@@ -56,6 +56,15 @@ final class AppModel {
         dashboardUnitState.cycle(target)
     }
 
+    /// The status item's rendered text, cached so Settings can show exactly
+    /// what the menu bar shows rather than reimplementing the formatting.
+    /// Set by the status-item refresh; it posts nothing, so it cannot loop.
+    private(set) var menuBarText = ""
+
+    func setMenuBarText(_ text: String) {
+        menuBarText = text
+    }
+
     func setDashboardSectionOrder(_ order: [DashboardSection]) {
         updateSettings { $0.dashboardSectionOrder = DashboardSection.normalized(order) }
     }
