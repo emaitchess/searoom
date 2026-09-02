@@ -260,6 +260,57 @@ final class SearoomTests: XCTestCase {
         )
     }
 
+    func testSustainedPressureDuration() throws {
+        func levelSample(
+            _ offset: TimeInterval,
+            _ level: PressureLevel
+        ) throws -> SystemSample {
+            let encoded = try JSONEncoder().encode(SystemSample.placeholder)
+            var object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+            )
+            object["timestamp"] = Date(
+                timeIntervalSinceReferenceDate: 1_000 + offset
+            ).timeIntervalSince1970
+            object["cpuPressureLevel"] = level.rawValue
+            object["memoryPressureLevel"] = PressureLevel.unavailable.rawValue
+            object["thermalPressureLevel"] = PressureLevel.unavailable.rawValue
+            object["gpuPressureLevel"] = PressureLevel.unavailable.rawValue
+            return try JSONDecoder().decode(
+                SystemSample.self,
+                from: JSONSerialization.data(withJSONObject: object)
+            )
+        }
+
+        XCTAssertNil(SustainedPressure.duration(in: [SystemSample]()))
+
+        let flipped = try [
+            levelSample(0, .nominal),
+            levelSample(10, .nominal),
+            levelSample(20, .elevated),
+            levelSample(30, .elevated),
+            levelSample(40, .elevated)
+        ]
+        let flippedReading = SustainedPressure.duration(in: flipped)
+        XCTAssertEqual(flippedReading?.level, .elevated)
+        XCTAssertEqual(flippedReading?.duration ?? -1, 20, accuracy: 0.001)
+        XCTAssertFalse(flippedReading?.boundedByHistoryWindow ?? true)
+
+        let steady = try (0...5).map { try levelSample(Double($0) * 60, .constrained) }
+        let steadyReading = SustainedPressure.duration(in: steady)
+        XCTAssertEqual(steadyReading?.level, .constrained)
+        XCTAssertEqual(steadyReading?.duration ?? -1, 300, accuracy: 0.001)
+        XCTAssertTrue(steadyReading?.boundedByHistoryWindow ?? false)
+
+        let unavailable = try [levelSample(0, .unavailable), levelSample(60, .unavailable)]
+        XCTAssertNil(SustainedPressure.duration(in: unavailable))
+
+        let single = try [levelSample(0, .nominal)]
+        let singleReading = SustainedPressure.duration(in: single)
+        XCTAssertEqual(singleReading?.duration ?? -1, 0, accuracy: 0.001)
+        XCTAssertTrue(singleReading?.boundedByHistoryWindow ?? false)
+    }
+
     func testMetricFormatting() {
         XCTAssertEqual(MetricFormat.compactBytes(16 * 1_073_741_824), "16G")
         XCTAssertEqual(
@@ -294,6 +345,10 @@ final class SearoomTests: XCTestCase {
         XCTAssertEqual(MetricFormat.fixedField("TOO-LONG", columns: 4), "TOO-LONG")
         XCTAssertEqual(MetricFormat.temperature(nil), "N/A")
         XCTAssertEqual(MetricFormat.uptime(90_061), "01D 01H")
+        XCTAssertEqual(MetricFormat.compactDuration(0), "00M")
+        XCTAssertEqual(MetricFormat.compactDuration(12 * 60), "12M")
+        XCTAssertEqual(MetricFormat.compactDuration((3 * 60 + 12) * 60), "03H 12M")
+        XCTAssertEqual(MetricFormat.compactDuration(2 * 86_400 + 3 * 3_600), "02D 03H")
         XCTAssertEqual(MetricFormat.fanActivity([]), "N/A")
         XCTAssertEqual(
             MetricFormat.fanActivity([FanSample(name: "FAN 1", rpm: 2_314)]),

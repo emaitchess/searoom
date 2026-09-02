@@ -30,6 +30,9 @@ enum SelfTest {
         check(MetricFormat.fixedField("8%", columns: 4) == "  8%", "fixed metric field")
         check(MetricFormat.fixedLabel("BAT", columns: 4) == "BAT ", "fixed metric label")
         check(MetricFormat.uptime(90_061) == "01D 01H", "uptime formatting")
+        check(MetricFormat.compactDuration(12 * 60) == "12M", "compact duration minutes")
+        check(MetricFormat.compactDuration((3 * 60 + 12) * 60) == "03H 12M", "compact duration hours")
+        check(MetricFormat.compactDuration(2 * 86_400 + 3 * 3_600) == "02D 03H", "compact duration days")
         check(
             MetricFormat.fanActivity([
                 FanSample(name: "FAN 1", rpm: 2_314),
@@ -186,6 +189,42 @@ enum SelfTest {
         } else {
             failures.append("sample migration fixture")
         }
+
+        func sustainedSample(_ offset: TimeInterval, level raw: Int) -> SystemSample? {
+            guard let encoded = try? JSONEncoder().encode(SystemSample.placeholder),
+                  var object = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+            else { return nil }
+            object["timestamp"] = Date(
+                timeIntervalSinceReferenceDate: 1_000 + offset
+            ).timeIntervalSince1970
+            object["cpuPressureLevel"] = raw
+            object["memoryPressureLevel"] = -1
+            object["thermalPressureLevel"] = -1
+            object["gpuPressureLevel"] = -1
+            guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+            return try? JSONDecoder().decode(SystemSample.self, from: data)
+        }
+        let sustainedFlip = [0.0, 10, 20, 30, 40]
+            .compactMap { sustainedSample($0, level: $0 < 20 ? 0 : 1) }
+        if let reading = SustainedPressure.duration(in: sustainedFlip) {
+            check(reading.level == .elevated, "sustained pressure level")
+            check(abs(reading.duration - 20) < 0.001, "sustained pressure duration")
+            check(!reading.boundedByHistoryWindow, "sustained pressure boundary")
+        } else {
+            failures.append("sustained pressure fixture")
+        }
+        let sustainedSteady = [0.0, 60, 120, 180]
+            .compactMap { sustainedSample($0, level: 2) }
+        if let reading = SustainedPressure.duration(in: sustainedSteady) {
+            check(reading.boundedByHistoryWindow, "sustained pressure window saturation")
+            check(abs(reading.duration - 180) < 0.001, "sustained pressure window duration")
+        } else {
+            failures.append("sustained pressure steady fixture")
+        }
+        check(
+            SustainedPressure.duration(in: [SystemSample]()) == nil,
+            "sustained pressure empty history"
+        )
 
         let collector = SystemMetricsCollector()
         _ = collector.collect()

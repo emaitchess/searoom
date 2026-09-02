@@ -351,8 +351,30 @@ final class DashboardView: NSView {
             font: SearoomFont.metric(10),
             color: pressureColor
         )
+        let durationText = headerDurationText()
+        if !durationText.isEmpty {
+            drawText(
+                durationText,
+                alignedRightAt: statusRect.maxX,
+                y: 49,
+                font: SearoomFont.metric(8),
+                color: theme.subdued
+            )
+        }
         theme.ink.withAlphaComponent(0.65).setFill()
         NSRect(x: 0, y: 67, width: bounds.width, height: 1).fill()
+    }
+
+    /// The sustained-duration line under the header status box. Hidden until
+    /// the level has been held for at least a minute; a run that spans every
+    /// retained sample is suffixed with `+` because the window, not the Mac,
+    /// bounds it.
+    private func headerDurationText() -> String {
+        guard let sustained = SustainedPressure.duration(in: model.history),
+              sustained.duration >= 60
+        else { return "" }
+        return "FOR \(MetricFormat.compactDuration(sustained.duration))"
+            + (sustained.boundedByHistoryWindow ? "+" : "")
     }
 
     private func drawMetricCard(
@@ -780,6 +802,7 @@ final class DashboardView: NSView {
             + "-\(sample.isLowPowerModeEnabled)"
         return LivePresentation(
             header: sample.overallPressureLevel,
+            headerDuration: headerDurationText(),
             cpu: "\(MetricFormat.percent(sample.cpuUsage))-\(sample.loadAverage1m)-\(sample.logicalCPUCount)-\(sample.cpuPressureLevel.rawValue)",
             memory: "\(MetricFormat.bytePair(sample.memoryUsed, sample.memoryTotal, unit: memoryUnit))"
                 + "-\(MetricFormat.compactBytes(sample.memoryAvailable, unit: memoryUnit))"
@@ -831,8 +854,8 @@ final class DashboardView: NSView {
         let disk = NSRect(x: margin + cardWidth + gap, y: 418, width: cardWidth, height: 158)
         let network = NSRect(x: margin, y: 586, width: bounds.width - margin * 2, height: 122)
 
-        if previous.header != current.header {
-            invalidateVisible(NSRect(x: bounds.width * 0.5, y: 8, width: bounds.width * 0.5, height: 50))
+        if previous.header != current.header || previous.headerDuration != current.headerDuration {
+            invalidateVisible(NSRect(x: bounds.width * 0.5, y: 8, width: bounds.width * 0.5, height: 56))
         }
         if previous.cpu != current.cpu { invalidateVisible(liveMetricRect(for: cpu)) }
         if previous.memory != current.memory { invalidateVisible(liveMetricRect(for: memory)) }
@@ -1193,11 +1216,17 @@ final class DashboardView: NSView {
         } ?? "an unavailable reading"
         let processMemoryUnit = model.dashboardUnitState.byteUnit(for: .processMemory)
         let processMemory = MetricFormat.bytes(sample.processMemoryBytes, unit: processMemoryUnit)
+        let sustained = SustainedPressure.duration(in: model.history)
+        let sustainedPhrase = if let sustained, sustained.duration >= 60 {
+            ", sustained for \(Self.spokenDuration(sustained.duration))"
+        } else {
+            ""
+        }
         let selfImpact = "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
             + "\(processMemory) memory. "
             + "Click a unit-bearing metric to change its display unit."
         setAccessibilityValue(
-            "System \(sample.overallPressureLevel.systemLabel). "
+            "System \(sample.overallPressureLevel.systemLabel)\(sustainedPhrase). "
                 + "CPU \(MetricFormat.percent(sample.cpuUsage)). "
                 + "Memory \(memory) used. "
                 + "GPU memory \(gpuMemory). "
@@ -1205,6 +1234,16 @@ final class DashboardView: NSView {
                 + "Temperature \(temperature). "
                 + selfImpact
         )
+    }
+
+    private static func spokenDuration(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
+        let minutes = seconds / 60
+        let hours = minutes / 60
+        let days = hours / 24
+        if days > 0 { return "\(days) day\(days == 1 ? "" : "s")" }
+        if hours > 0 { return "\(hours) hour\(hours == 1 ? "" : "s") \(minutes % 60) minutes" }
+        return "\(minutes) minute\(minutes == 1 ? "" : "s")"
     }
 
     private func drawText(_ text: String, at point: NSPoint, font: NSFont, color: NSColor) {
@@ -1253,6 +1292,7 @@ final class DashboardView: NSView {
 
     private struct LivePresentation: Equatable {
         let header: PressureLevel
+        let headerDuration: String
         let cpu: String
         let memory: String
         let gpu: String

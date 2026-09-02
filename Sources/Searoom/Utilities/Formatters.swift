@@ -159,6 +159,16 @@ enum MetricFormat {
         return String(format: "%02dH %02dM", hours, minutes)
     }
 
+    static func compactDuration(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
+        let minutes = seconds / 60
+        let hours = minutes / 60
+        let days = hours / 24
+        if days > 0 { return String(format: "%02dD %02dH", days, hours % 24) }
+        if hours > 0 { return String(format: "%02dH %02dM", hours, minutes % 60) }
+        return String(format: "%02dM", minutes)
+    }
+
     private static func compactByteNumber(_ value: UInt64, unit: MetricByteUnit) -> String {
         switch unit {
         case .gigabytes:
