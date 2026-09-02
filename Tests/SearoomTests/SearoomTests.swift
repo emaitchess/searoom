@@ -86,7 +86,9 @@ final class SearoomTests: XCTestCase {
     }
 
     func testPrimaryTrendHoverMetricsStaySynchronized() {
-        let primaryMetrics: [DashboardTrendMetric] = [.cpu, .memory, .gpu, .thermal]
+        let primaryMetrics: [DashboardTrendMetric] = [
+            .cpu, .memory, .gpu, .thermal, .gpuMemory, .diskUsed
+        ]
         for metric in primaryMetrics {
             XCTAssertEqual(metric.synchronizedMetrics, primaryMetrics)
         }
@@ -329,6 +331,12 @@ final class SearoomTests: XCTestCase {
         XCTAssertEqual(state.byteUnit(for: .compressedMemory), .megabytes)
         XCTAssertEqual(state.rateUnit(for: .compression), .bytes)
         XCTAssertEqual(state.rateUnit(for: .swapIO), .adaptive)
+
+        state.cycle(.gpuMemory)
+        state.cycle(.diskCapacity)
+        XCTAssertEqual(state.byteUnit(for: .gpuMemory), .megabytes)
+        XCTAssertEqual(state.byteUnit(for: .diskCapacity), .megabytes)
+        XCTAssertEqual(state.byteUnit(for: .memory), .gigabytes)
     }
 
     func testOlderSampleReceivesDefaultsForNewMetrics() throws {

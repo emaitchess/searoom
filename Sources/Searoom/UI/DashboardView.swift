@@ -25,7 +25,7 @@ final class DashboardView: NSView {
 
     init(model: AppModel) {
         self.model = model
-        super.init(frame: NSRect(x: 0, y: 0, width: 430, height: 952))
+        super.init(frame: NSRect(x: 0, y: 0, width: 430, height: 1120))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Searoom system dashboard")
@@ -101,21 +101,27 @@ final class DashboardView: NSView {
         let memoryRect = NSRect(x: margin + cardWidth + gap, y: 82, width: cardWidth, height: 158)
         let gpuRect = NSRect(x: margin, y: 250, width: cardWidth, height: 158)
         let thermalRect = NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158)
-        let networkRect = NSRect(x: margin, y: 418, width: bounds.width - margin * 2, height: 122)
-        let infoRect = NSRect(x: margin, y: 550, width: bounds.width - margin * 2, height: 88)
-        let extrasRect = NSRect(x: margin, y: 648, width: bounds.width - margin * 2, height: 180)
-        let selfRect = NSRect(x: margin, y: 838, width: bounds.width - margin * 2, height: 42)
-        let footerRect = NSRect(x: 0, y: 894, width: bounds.width, height: 38)
+        let gpuMemoryRect = NSRect(x: margin, y: 418, width: cardWidth, height: 158)
+        let diskRect = NSRect(x: margin + cardWidth + gap, y: 418, width: cardWidth, height: 158)
+        let networkRect = NSRect(x: margin, y: 586, width: bounds.width - margin * 2, height: 122)
+        let infoRect = NSRect(x: margin, y: 718, width: bounds.width - margin * 2, height: 88)
+        let extrasRect = NSRect(x: margin, y: 816, width: bounds.width - margin * 2, height: 180)
+        let selfRect = NSRect(x: margin, y: 1006, width: bounds.width - margin * 2, height: 42)
+        let footerRect = NSRect(x: 0, y: 1062, width: bounds.width, height: 38)
         graphRegions = [
             GraphRegion(metric: .cpu, rect: graphRect(for: cpuRect)),
             GraphRegion(metric: .memory, rect: graphRect(for: memoryRect)),
             GraphRegion(metric: .gpu, rect: graphRect(for: gpuRect)),
             GraphRegion(metric: .thermal, rect: graphRect(for: thermalRect)),
+            GraphRegion(metric: .gpuMemory, rect: graphRect(for: gpuMemoryRect)),
+            GraphRegion(metric: .diskUsed, rect: graphRect(for: diskRect)),
             GraphRegion(metric: .network, rect: networkGraphRect(for: networkRect))
         ]
         unitRegions = makeUnitRegions(
             memoryRect: memoryRect,
             thermalRect: thermalRect,
+            gpuMemoryRect: gpuMemoryRect,
+            diskRect: diskRect,
             networkRect: networkRect,
             extrasRect: extrasRect,
             selfRect: selfRect,
@@ -152,6 +158,8 @@ final class DashboardView: NSView {
                 + " · SWAP \(MetricFormat.compactBytes(sample.swapUsed, unit: model.dashboardUnitState.byteUnit(for: .memory)))"
                 + " · COMP \(MetricFormat.compactBytes(sample.compressedMemoryBytes, unit: model.dashboardUnitState.byteUnit(for: .memory)))",
             pressure: sample.memoryPressureLevel,
+            secondaryValues: graphs?.compressed ?? [],
+            secondaryColor: theme.cool,
             values: graphs?.memory ?? [],
             drawsGraph: needsToDraw(graphRect(for: memoryRect)),
             theme: theme
@@ -184,6 +192,49 @@ final class DashboardView: NSView {
             theme: theme
         ) }
 
+        let gpuMemoryUnit = model.dashboardUnitState.byteUnit(for: .gpuMemory)
+        let gpuMemoryCardValue = if let used = sample.gpuMemoryUsedBytes, let recommended = sample.gpuMemoryRecommendedBytes {
+            MetricFormat.bytePair(used, recommended, unit: gpuMemoryUnit)
+        } else if let used = sample.gpuMemoryUsedBytes {
+            MetricFormat.compactBytes(used, unit: gpuMemoryUnit)
+        } else {
+            "N/A"
+        }
+        let gpuMemoryCardDetail = if sample.gpuMemoryUsedBytes == nil {
+            "SENSOR UNAVAILABLE"
+        } else if sample.gpuMemoryRecommendedBytes == nil {
+            "WORKING SET BUDGET UNAVAILABLE"
+        } else {
+            "\(MetricFormat.percent(sample.gpuMemoryPressure ?? 0)) OF RECOMMENDED WORKING SET"
+        }
+        if needsToDraw(gpuMemoryRect) { drawMetricCard(
+            rect: gpuMemoryRect,
+            title: "GPU MEMORY",
+            value: gpuMemoryCardValue,
+            detail: gpuMemoryCardDetail,
+            pressure: sample.gpuPressureLevel,
+            values: graphs?.gpuMemory ?? [],
+            drawsGraph: needsToDraw(graphRect(for: gpuMemoryRect)),
+            theme: theme
+        ) }
+        let diskCapacityUnit = model.dashboardUnitState.byteUnit(for: .diskCapacity)
+        let diskCardValue = sample.diskAvailableBytes.map {
+            MetricFormat.compactBytes($0, unit: diskCapacityUnit)
+        } ?? "N/A"
+        let diskCardDetail = sample.diskCapacityBytes.map {
+            "OF \(MetricFormat.compactBytes($0, unit: diskCapacityUnit))"
+        } ?? "CAPACITY UNAVAILABLE"
+        if needsToDraw(diskRect) { drawMetricCard(
+            rect: diskRect,
+            title: "DISK",
+            value: diskCardValue,
+            detail: diskCardDetail,
+            pressure: nil,
+            values: graphs?.diskUsed ?? [],
+            drawsGraph: needsToDraw(graphRect(for: diskRect)),
+            theme: theme
+        ) }
+
         if needsToDraw(networkRect) { drawNetworkCard(
             rect: networkRect,
             sample: sample,
@@ -212,7 +263,7 @@ final class DashboardView: NSView {
             sample: sample,
             theme: theme
         ) }
-        if needsToDraw(footerRect) { drawFooter(y: 894, theme: theme) }
+        if needsToDraw(footerRect) { drawFooter(y: 1062, theme: theme) }
         if needsGraphs { updateHoverOverlays() }
     }
 
@@ -309,21 +360,25 @@ final class DashboardView: NSView {
         title: String,
         value: String,
         detail: String,
-        pressure: PressureLevel,
+        pressure: PressureLevel?,
+        secondaryValues: [Double] = [],
+        secondaryColor: NSColor? = nil,
         values: [Double],
         drawsGraph: Bool,
         theme: SearoomTheme
     ) {
         drawCardFrame(rect, theme: theme)
-        let color = theme.color(for: pressure)
+        let color = pressure.map { theme.color(for: $0) } ?? theme.cool
         drawText(title, at: NSPoint(x: rect.minX + 10, y: rect.minY + 10), font: SearoomFont.metric(10), color: theme.subdued)
-        drawText(
-            pressure.label,
-            alignedRightAt: rect.maxX - 10,
-            y: rect.minY + 10,
-            font: SearoomFont.metric(8),
-            color: color
-        )
+        if let pressure {
+            drawText(
+                pressure.label,
+                alignedRightAt: rect.maxX - 10,
+                y: rect.minY + 10,
+                font: SearoomFont.metric(8),
+                color: color
+            )
+        }
         drawText(
             value,
             in: NSRect(x: rect.minX + 10, y: rect.minY + 32, width: rect.width - 20, height: 24),
@@ -338,12 +393,23 @@ final class DashboardView: NSView {
         )
         let graphRect = NSRect(x: rect.minX + 10, y: rect.minY + 81, width: rect.width - 20, height: 65)
         if drawsGraph {
-            drawGraph(
-                values: values,
-                rect: graphRect,
-                color: color,
-                theme: theme
-            )
+            if let secondaryColor, secondaryValues.count > 1 {
+                drawDualGraph(
+                    first: values,
+                    second: secondaryValues,
+                    rect: graphRect,
+                    firstColor: color,
+                    secondColor: secondaryColor,
+                    theme: theme
+                )
+            } else {
+                drawGraph(
+                    values: values,
+                    rect: graphRect,
+                    color: color,
+                    theme: theme
+                )
+            }
         }
     }
 
@@ -619,6 +685,18 @@ final class DashboardView: NSView {
         let networkUnit = model.dashboardUnitState.rateUnit(for: .network)
         let download = MetricFormat.rate(sample.networkDownloadPerSecond, unit: networkUnit)
         let upload = MetricFormat.rate(sample.networkUploadPerSecond, unit: networkUnit)
+        let gpuMemoryUnit = model.dashboardUnitState.byteUnit(for: .gpuMemory)
+        let gpuMemory = if let used = sample.gpuMemoryUsedBytes, let recommended = sample.gpuMemoryRecommendedBytes {
+            MetricFormat.bytePair(used, recommended, unit: gpuMemoryUnit)
+        } else if let used = sample.gpuMemoryUsedBytes {
+            MetricFormat.compactBytes(used, unit: gpuMemoryUnit)
+        } else {
+            "N/A"
+        }
+        let diskCapacityUnit = model.dashboardUnitState.byteUnit(for: .diskCapacity)
+        let diskAvailable = sample.diskAvailableBytes.map {
+            MetricFormat.compactBytes($0, unit: diskCapacityUnit)
+        } ?? "N/A"
         let value: String = switch metric {
         case .cpu:
             "CPU \(MetricFormat.percent(sample.cpuUsage))"
@@ -628,6 +706,10 @@ final class DashboardView: NSView {
             "GPU \(sample.gpuUsage.map(MetricFormat.percent) ?? "N/A")"
         case .thermal:
             "\(sample.temperatureSource.compactLabel) \(temperature)"
+        case .gpuMemory:
+            "VRAM \(gpuMemory)"
+        case .diskUsed:
+            "DISK \(diskAvailable) FREE"
         case .network:
             "↓ \(download) · ↑ \(upload)"
         }
@@ -673,6 +755,21 @@ final class DashboardView: NSView {
         let compressedUnit = model.dashboardUnitState.byteUnit(for: .compressedMemory)
         let compressionUnit = model.dashboardUnitState.rateUnit(for: .compression)
         let processMemoryUnit = model.dashboardUnitState.byteUnit(for: .processMemory)
+        let gpuMemoryUnit = model.dashboardUnitState.byteUnit(for: .gpuMemory)
+        let diskCapacityUnit = model.dashboardUnitState.byteUnit(for: .diskCapacity)
+        let gpuMemory = if let used = sample.gpuMemoryUsedBytes, let recommended = sample.gpuMemoryRecommendedBytes {
+            MetricFormat.bytePair(used, recommended, unit: gpuMemoryUnit)
+        } else if let used = sample.gpuMemoryUsedBytes {
+            MetricFormat.compactBytes(used, unit: gpuMemoryUnit)
+        } else {
+            "N/A"
+        }
+        let diskAvailable = sample.diskAvailableBytes.map {
+            MetricFormat.compactBytes($0, unit: diskCapacityUnit)
+        } ?? "N/A"
+        let diskCapacity = sample.diskCapacityBytes.map {
+            MetricFormat.compactBytes($0, unit: diskCapacityUnit)
+        } ?? "N/A"
         let fanText = MetricFormat.fanActivity(sample.fans)
         let thermalDetail = sample.fans.isEmpty
             ? "\(sample.temperatureSource.label) · FAN N/A"
@@ -690,6 +787,8 @@ final class DashboardView: NSView {
                 + "-\(MetricFormat.compactBytes(sample.compressedMemoryBytes, unit: memoryUnit))"
                 + "-\(sample.memoryPressureLevel.rawValue)",
             gpu: "\(sample.gpuUsage.map(MetricFormat.percent) ?? "N/A")-\(sample.gpuPressureLevel.rawValue)",
+            gpuMemory: "\(gpuMemory)-\(sample.gpuPressureLevel.rawValue)",
+            disk: "\(diskAvailable)-\(diskCapacity)",
             thermal: "\(MetricFormat.temperature(sample.temperatureCelsius, unit: temperatureUnit))-\(thermalDetail)-\(sample.thermalPressureLevel.rawValue)",
             network: "\(MetricFormat.rate(sample.networkDownloadPerSecond, unit: networkUnit))"
                 + "-\(MetricFormat.rate(sample.networkUploadPerSecond, unit: networkUnit))",
@@ -711,7 +810,8 @@ final class DashboardView: NSView {
                 sample.cpuPressureLevel,
                 sample.memoryPressureLevel,
                 sample.gpuPressureLevel,
-                sample.thermalPressureLevel
+                sample.thermalPressureLevel,
+                sample.gpuPressureLevel
             ]
         )
     }
@@ -727,7 +827,9 @@ final class DashboardView: NSView {
         let memory = NSRect(x: margin + cardWidth + gap, y: 82, width: cardWidth, height: 158)
         let gpu = NSRect(x: margin, y: 250, width: cardWidth, height: 158)
         let thermal = NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158)
-        let network = NSRect(x: margin, y: 418, width: bounds.width - margin * 2, height: 122)
+        let gpuMemory = NSRect(x: margin, y: 418, width: cardWidth, height: 158)
+        let disk = NSRect(x: margin + cardWidth + gap, y: 418, width: cardWidth, height: 158)
+        let network = NSRect(x: margin, y: 586, width: bounds.width - margin * 2, height: 122)
 
         if previous.header != current.header {
             invalidateVisible(NSRect(x: bounds.width * 0.5, y: 8, width: bounds.width * 0.5, height: 50))
@@ -736,20 +838,22 @@ final class DashboardView: NSView {
         if previous.memory != current.memory { invalidateVisible(liveMetricRect(for: memory)) }
         if previous.gpu != current.gpu { invalidateVisible(liveMetricRect(for: gpu)) }
         if previous.thermal != current.thermal { invalidateVisible(liveMetricRect(for: thermal)) }
+        if previous.gpuMemory != current.gpuMemory { invalidateVisible(liveMetricRect(for: gpuMemory)) }
+        if previous.disk != current.disk { invalidateVisible(liveMetricRect(for: disk)) }
         if previous.network != current.network {
             invalidateVisible(NSRect(x: network.minX + 2, y: network.minY + 5, width: network.width - 4, height: 54))
         }
         if previous.info != current.info {
-            invalidateVisible(NSRect(x: margin + 2, y: 555, width: bounds.width - margin * 2 - 4, height: 78))
+            invalidateVisible(NSRect(x: margin + 2, y: 723, width: bounds.width - margin * 2 - 4, height: 78))
         }
         if previous.extras != current.extras {
-            invalidateVisible(NSRect(x: margin + 2, y: 653, width: bounds.width - margin * 2 - 4, height: 170))
+            invalidateVisible(NSRect(x: margin + 2, y: 821, width: bounds.width - margin * 2 - 4, height: 170))
         }
         if previous.ownProcess != current.ownProcess {
-            invalidateVisible(NSRect(x: margin + 7, y: 844, width: bounds.width - margin * 2 - 9, height: 31))
+            invalidateVisible(NSRect(x: margin + 7, y: 1012, width: bounds.width - margin * 2 - 9, height: 31))
         }
 
-        let cards = [cpu, memory, gpu, thermal]
+        let cards = [cpu, memory, gpu, thermal, gpuMemory]
         for index in cards.indices where previous.pressures[index] != current.pressures[index] {
             invalidateVisible(graphRect(for: cards[index]))
         }
@@ -763,11 +867,13 @@ final class DashboardView: NSView {
             NSRect(x: margin, y: 82, width: cardWidth, height: 158),
             NSRect(x: margin + cardWidth + gap, y: 82, width: cardWidth, height: 158),
             NSRect(x: margin, y: 250, width: cardWidth, height: 158),
-            NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158)
+            NSRect(x: margin + cardWidth + gap, y: 250, width: cardWidth, height: 158),
+            NSRect(x: margin, y: 418, width: cardWidth, height: 158),
+            NSRect(x: margin + cardWidth + gap, y: 418, width: cardWidth, height: 158)
         ] {
             invalidateVisible(graphRect(for: card))
         }
-        let network = NSRect(x: margin, y: 418, width: bounds.width - margin * 2, height: 122)
+        let network = NSRect(x: margin, y: 586, width: bounds.width - margin * 2, height: 122)
         invalidateVisible(networkGraphRect(for: network))
     }
 
@@ -807,6 +913,8 @@ final class DashboardView: NSView {
     private func makeUnitRegions(
         memoryRect: NSRect,
         thermalRect: NSRect,
+        gpuMemoryRect: NSRect,
+        diskRect: NSRect,
         networkRect: NSRect,
         extrasRect: NSRect,
         selfRect: NSRect,
@@ -860,6 +968,16 @@ final class DashboardView: NSView {
                 target: .temperature,
                 hitRect: thermalRect,
                 displayRect: liveMetricRect(for: thermalRect)
+            ),
+            UnitRegion(
+                target: .gpuMemory,
+                hitRect: gpuMemoryRect,
+                displayRect: liveMetricRect(for: gpuMemoryRect)
+            ),
+            UnitRegion(
+                target: .diskCapacity,
+                hitRect: diskRect,
+                displayRect: liveMetricRect(for: diskRect)
             ),
             UnitRegion(
                 target: .network,
@@ -953,6 +1071,9 @@ final class DashboardView: NSView {
         var memory: [Double] = []
         var gpu: [Double] = []
         var thermal: [Double] = []
+        var gpuMemory: [Double] = []
+        var diskUsed: [Double] = []
+        var compressed: [Double] = []
         var download: [Double] = []
         var upload: [Double] = []
         let count = model.history.count
@@ -962,6 +1083,13 @@ final class DashboardView: NSView {
             memory.append(Double(sample.memoryUsed) / Double(max(1, sample.memoryTotal)))
             if let value = sample.gpuUsage { gpu.append(value) }
             if let value = sample.temperatureCelsius { thermal.append(value) }
+            if let value = sample.gpuMemoryPressure { gpuMemory.append(value) }
+            if let capacity = sample.diskCapacityBytes, capacity > 0, let available = sample.diskAvailableBytes {
+                diskUsed.append(min(1, max(0, 1 - Double(available) / Double(capacity))))
+            }
+            compressed.append(
+                Double(sample.compressedMemoryBytes) / Double(max(1, sample.memoryTotal))
+            )
             download.append(sample.networkDownloadPerSecond)
             upload.append(sample.networkUploadPerSecond)
         }
@@ -977,6 +1105,9 @@ final class DashboardView: NSView {
             memory: normalize(downsample(memory, limit: cardLimit), scale: .percentage),
             gpu: normalize(downsample(gpu, limit: cardLimit), scale: .percentage),
             thermal: normalize(downsample(thermal, limit: cardLimit), scale: .temperature),
+            gpuMemory: normalize(downsample(gpuMemory, limit: cardLimit), scale: .percentage),
+            diskUsed: normalize(downsample(diskUsed, limit: cardLimit), scale: .percentage),
+            compressed: normalize(downsample(compressed, limit: cardLimit), scale: .percentage),
             download: downsample(download, limit: networkLimit).map { $0 / networkMaximum },
             upload: downsample(upload, limit: networkLimit).map { $0 / networkMaximum }
         )
@@ -1050,14 +1181,29 @@ final class DashboardView: NSView {
             sample.temperatureCelsius,
             unit: model.dashboardUnitState.temperatureUnit(for: .temperature)
         )
+        let gpuMemoryUnit = model.dashboardUnitState.byteUnit(for: .gpuMemory)
+        let gpuMemory = if let used = sample.gpuMemoryUsedBytes, let recommended = sample.gpuMemoryRecommendedBytes {
+            "\(MetricFormat.bytes(used, unit: gpuMemoryUnit)) of \(MetricFormat.bytes(recommended, unit: gpuMemoryUnit))"
+        } else {
+            "an unavailable reading"
+        }
+        let diskCapacityUnit = model.dashboardUnitState.byteUnit(for: .diskCapacity)
+        let diskAvailable = sample.diskAvailableBytes.map {
+            "\(MetricFormat.bytes($0, unit: diskCapacityUnit)) free"
+        } ?? "an unavailable reading"
+        let processMemoryUnit = model.dashboardUnitState.byteUnit(for: .processMemory)
+        let processMemory = MetricFormat.bytes(sample.processMemoryBytes, unit: processMemoryUnit)
+        let selfImpact = "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
+            + "\(processMemory) memory. "
+            + "Click a unit-bearing metric to change its display unit."
         setAccessibilityValue(
             "System \(sample.overallPressureLevel.systemLabel). "
                 + "CPU \(MetricFormat.percent(sample.cpuUsage)). "
                 + "Memory \(memory) used. "
+                + "GPU memory \(gpuMemory). "
+                + "Disk \(diskAvailable). "
                 + "Temperature \(temperature). "
-                + "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
-                + "\(MetricFormat.bytes(sample.processMemoryBytes, unit: model.dashboardUnitState.byteUnit(for: .processMemory))) memory. "
-                + "Click a unit-bearing metric to change its display unit."
+                + selfImpact
         )
     }
 
@@ -1110,6 +1256,8 @@ final class DashboardView: NSView {
         let cpu: String
         let memory: String
         let gpu: String
+        let gpuMemory: String
+        let disk: String
         let thermal: String
         let network: String
         let info: String
@@ -1128,6 +1276,9 @@ final class DashboardView: NSView {
         let memory: [Double]
         let gpu: [Double]
         let thermal: [Double]
+        let gpuMemory: [Double]
+        let diskUsed: [Double]
+        let compressed: [Double]
         let download: [Double]
         let upload: [Double]
     }

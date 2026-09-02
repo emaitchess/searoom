@@ -134,7 +134,9 @@ enum SelfTest {
             timestampAt: { trendDates[$0] }
         )
         check(nearestTrendIndex == 1, "trend hover sample alignment")
-        let primaryTrendMetrics: [DashboardTrendMetric] = [.cpu, .memory, .gpu, .thermal]
+        let primaryTrendMetrics: [DashboardTrendMetric] = [
+            .cpu, .memory, .gpu, .thermal, .gpuMemory, .diskUsed
+        ]
         check(
             primaryTrendMetrics.allSatisfy { $0.synchronizedMetrics == primaryTrendMetrics },
             "primary trend hover synchronization"

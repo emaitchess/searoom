@@ -60,12 +60,14 @@ enum DashboardTrendMetric: CaseIterable, Hashable, Sendable {
     case memory
     case gpu
     case thermal
+    case gpuMemory
+    case diskUsed
     case network
 
     var synchronizedMetrics: [DashboardTrendMetric] {
         switch self {
-        case .cpu, .memory, .gpu, .thermal:
-            [.cpu, .memory, .gpu, .thermal]
+        case .cpu, .memory, .gpu, .thermal, .gpuMemory, .diskUsed:
+            [.cpu, .memory, .gpu, .thermal, .gpuMemory, .diskUsed]
         case .network:
             [.network]
         }
