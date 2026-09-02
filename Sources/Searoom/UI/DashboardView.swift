@@ -547,16 +547,28 @@ final class DashboardView: NSView {
                 color: color
             )
         }
+        let valueRect = NSRect(
+            x: rect.minX + 10,
+            y: rect.minY + 32,
+            width: rect.width - 20,
+            height: 24
+        )
         drawText(
             value,
-            in: NSRect(x: rect.minX + 10, y: rect.minY + 32, width: rect.width - 20, height: 24),
-            font: SearoomFont.metric(20),
+            in: valueRect,
+            font: fittedMetricFont(value, maximumSize: 20, minimumSize: 12, width: valueRect.width),
             color: theme.ink
+        )
+        let detailRect = NSRect(
+            x: rect.minX + 10,
+            y: rect.minY + 59,
+            width: rect.width - 20,
+            height: 12
         )
         drawText(
             detail,
-            in: NSRect(x: rect.minX + 10, y: rect.minY + 59, width: rect.width - 20, height: 12),
-            font: SearoomFont.metric(7.5),
+            in: detailRect,
+            font: fittedMetricFont(detail, maximumSize: 7.5, minimumSize: 6, width: detailRect.width),
             color: theme.subdued
         )
         let graphRect = NSRect(x: rect.minX + 10, y: rect.minY + 81, width: rect.width - 20, height: 65)
@@ -592,16 +604,30 @@ final class DashboardView: NSView {
         drawCardFrame(rect, theme: theme)
         let rateUnit = model.dashboardUnitState.rateUnit(for: .network)
         drawText("NETWORK I/O", at: NSPoint(x: rect.minX + 10, y: rect.minY + 10), font: SearoomFont.metric(10), color: theme.subdued)
+        let download = "↓ \(MetricFormat.rate(sample.networkDownloadPerSecond, unit: rateUnit))"
+        let upload = "↑ \(MetricFormat.rate(sample.networkUploadPerSecond, unit: rateUnit))"
+        let downloadRect = NSRect(
+            x: rect.minX + 10,
+            y: rect.minY + 32,
+            width: rect.midX - rect.minX - 18,
+            height: 20
+        )
+        let uploadRect = NSRect(
+            x: rect.midX + 8,
+            y: rect.minY + 32,
+            width: rect.maxX - rect.midX - 18,
+            height: 20
+        )
         drawText(
-            "↓ \(MetricFormat.rate(sample.networkDownloadPerSecond, unit: rateUnit))",
-            at: NSPoint(x: rect.minX + 10, y: rect.minY + 32),
-            font: SearoomFont.metric(15),
+            download,
+            in: downloadRect,
+            font: fittedMetricFont(download, maximumSize: 15, minimumSize: 10, width: downloadRect.width),
             color: theme.cool
         )
         drawText(
-            "↑ \(MetricFormat.rate(sample.networkUploadPerSecond, unit: rateUnit))",
-            at: NSPoint(x: rect.midX + 8, y: rect.minY + 32),
-            font: SearoomFont.metric(15),
+            upload,
+            in: uploadRect,
+            font: fittedMetricFont(upload, maximumSize: 15, minimumSize: 10, width: uploadRect.width),
             color: theme.ink
         )
 
@@ -655,10 +681,16 @@ final class DashboardView: NSView {
         let summary = "SEAROOM · CPU \(MetricFormat.unboundedPercent(sample.processCPUUsage))"
             + " · RAM \(MetricFormat.compactBytes(sample.processMemoryBytes, unit: model.dashboardUnitState.byteUnit(for: .processMemory)))"
             + " · SAMPLE \(String(format: "%.0f", model.settings.sampleInterval))S"
+        let summaryRect = NSRect(
+            x: rect.minX + 14,
+            y: rect.minY + 12,
+            width: rect.width - 28,
+            height: 18
+        )
         drawText(
             summary,
-            at: NSPoint(x: rect.minX + 14, y: rect.minY + 14),
-            font: SearoomFont.metric(10.5),
+            in: summaryRect,
+            font: fittedMetricFont(summary, maximumSize: 10.5, minimumSize: 8.5, width: summaryRect.width),
             color: theme.ink
         )
     }
@@ -708,12 +740,38 @@ final class DashboardView: NSView {
             ),
             ("PROCESSES", "\(sample.processCount)", "POWER", power)
         ]
+        let labelFont = SearoomFont.metric(8)
         for (index, row) in rows.enumerated() {
             let y = rect.minY + 36 + CGFloat(index * 27)
-            drawText(row.0, at: NSPoint(x: rect.minX + 10, y: y), font: SearoomFont.metric(8), color: theme.subdued)
-            drawText(row.1, at: NSPoint(x: rect.minX + 91, y: y - 1), font: SearoomFont.metric(10), color: theme.ink)
-            drawText(row.2, at: NSPoint(x: rect.midX + 5, y: y), font: SearoomFont.metric(8), color: theme.subdued)
-            drawText(row.3, alignedRightAt: rect.maxX - 10, y: y - 1, font: SearoomFont.metric(10), color: theme.ink)
+            let leftValueRect = NSRect(
+                x: rect.minX + 91,
+                y: y - 1,
+                width: rect.midX - rect.minX - 99,
+                height: 14
+            )
+            let rightLabelX = rect.midX + 5
+            let rightValueX = rightLabelX + textSize(row.2, font: labelFont).width + 8
+            let rightValueRect = NSRect(
+                x: rightValueX,
+                y: y - 1,
+                width: rect.maxX - 10 - rightValueX,
+                height: 14
+            )
+            drawText(row.0, at: NSPoint(x: rect.minX + 10, y: y), font: labelFont, color: theme.subdued)
+            drawText(
+                row.1,
+                in: leftValueRect,
+                font: fittedMetricFont(row.1, maximumSize: 10, minimumSize: 7, width: leftValueRect.width),
+                color: theme.ink
+            )
+            drawText(row.2, at: NSPoint(x: rightLabelX, y: y), font: labelFont, color: theme.subdued)
+            drawText(
+                row.3,
+                in: rightValueRect,
+                font: fittedMetricFont(row.3, maximumSize: 10, minimumSize: 7, width: rightValueRect.width),
+                color: theme.ink,
+                alignment: .right
+            )
         }
     }
 
@@ -1153,17 +1211,30 @@ final class DashboardView: NSView {
             width: extrasWidth,
             height: 26
         )
-        let selfFont = SearoomFont.metric(10.5)
         let selfPrefix = "SEAROOM · CPU \(MetricFormat.unboundedPercent(sample.processCPUUsage)) · "
         let processMemoryValue = MetricFormat.compactBytes(
             sample.processMemoryBytes,
             unit: model.dashboardUnitState.byteUnit(for: .processMemory)
         )
         let processMemory = "RAM \(processMemoryValue)"
+        let selfSummary = selfPrefix + processMemory
+            + " · SAMPLE \(String(format: "%.0f", model.settings.sampleInterval))S"
+        let selfAvailableWidth = selfRect.width - 28
+        let selfFont = fittedMetricFont(
+            selfSummary,
+            maximumSize: 10.5,
+            minimumSize: 8.5,
+            width: selfAvailableWidth
+        )
+        let processMemoryX = selfRect.minX + 14 + textSize(selfPrefix, font: selfFont).width
+        let processMemoryMaxX = selfRect.maxX - 14
         let processMemoryRect = NSRect(
-            x: selfRect.minX + 14 + textSize(selfPrefix, font: selfFont).width,
+            x: min(processMemoryX, processMemoryMaxX),
             y: selfRect.minY + 7,
-            width: textSize(processMemory, font: selfFont).width,
+            width: max(
+                0,
+                min(textSize(processMemory, font: selfFont).width, processMemoryMaxX - processMemoryX)
+            ),
             height: 28
         )
         return [
@@ -1435,9 +1506,16 @@ final class DashboardView: NSView {
         (text as NSString).draw(at: point, withAttributes: [.font: font, .foregroundColor: color])
     }
 
-    private func drawText(_ text: String, in rect: NSRect, font: NSFont, color: NSColor) {
+    private func drawText(
+        _ text: String,
+        in rect: NSRect,
+        font: NSFont,
+        color: NSColor,
+        alignment: NSTextAlignment = .left
+    ) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
+        paragraph.alignment = alignment
         (text as NSString).draw(
             with: rect,
             options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
@@ -1452,6 +1530,19 @@ final class DashboardView: NSView {
 
     private func textSize(_ text: String, font: NSFont) -> NSSize {
         (text as NSString).size(withAttributes: [.font: font])
+    }
+
+    private func fittedMetricFont(
+        _ text: String,
+        maximumSize: CGFloat,
+        minimumSize: CGFloat,
+        width: CGFloat
+    ) -> NSFont {
+        let font = SearoomFont.metric(maximumSize)
+        let measuredWidth = textSize(text, font: font).width
+        guard measuredWidth > width, measuredWidth > 0 else { return font }
+        let fittedSize = floor(maximumSize * (width - 1) / measuredWidth * 10) / 10
+        return SearoomFont.metric(max(minimumSize, fittedSize))
     }
 
     private enum GraphScale {
@@ -1576,7 +1667,11 @@ private final class GraphHoverOverlayView: NSView {
         theme.ink.withAlphaComponent(0.42).setFill()
         NSRect(x: floor(cursorX), y: 0, width: 1, height: bounds.height).fill()
 
-        let font = SearoomFont.metric(8.5)
+        let maximumFont = SearoomFont.metric(8.5)
+        let maximumLabelSize = (label as NSString).size(withAttributes: [.font: maximumFont])
+        let availableTextWidth = max(1, bounds.width - 10)
+        let fittedSize = max(7, min(8.5, floor(8.5 * availableTextWidth / max(1, maximumLabelSize.width) * 10) / 10))
+        let font = SearoomFont.metric(fittedSize)
         let labelSize = (label as NSString).size(withAttributes: [.font: font])
         let tooltipWidth = min(bounds.width, labelSize.width + 10)
         let tooltipX = min(bounds.maxX - tooltipWidth, max(bounds.minX, cursorX - tooltipWidth / 2))
@@ -1588,9 +1683,16 @@ private final class GraphHoverOverlayView: NSView {
         let outline = NSBezierPath(rect: tooltip)
         outline.lineWidth = 1
         outline.stroke()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingMiddle
         (label as NSString).draw(
-            at: NSPoint(x: tooltip.minX + 5, y: tooltip.minY + 4),
-            withAttributes: [.font: font, .foregroundColor: theme.ink]
+            with: NSRect(x: tooltip.minX + 5, y: tooltip.minY + 3, width: tooltip.width - 10, height: 13),
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [
+                .font: font,
+                .foregroundColor: theme.ink,
+                .paragraphStyle: paragraph
+            ]
         )
     }
 }

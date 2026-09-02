@@ -178,7 +178,7 @@ Departure Mono is the voice of the instrument. It is bundled under the SIL Open 
 
 Use the system font for preferences, help, longer explanations, buttons, and accessibility-facing prose. This keeps Searoom native and reduces visual fatigue. Never use Departure Mono for paragraphs.
 
-- Large metric: Departure Mono Regular, 20 pt, tabular presentation.
+- Large metric: Departure Mono Regular, 20 pt, tabular presentation. Scale down only when an explicit-unit reading would exceed its card width; never let it overlap the card edge.
 - Metric value: Departure Mono Regular, 15 pt.
 - Micro-label: Departure Mono Regular, 10 pt, uppercase, 0.08 em tracking.
 - Body and controls: system font, 13 pt.
