@@ -13,6 +13,12 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let moveMetricDownButton = NSButton(title: "Move Down", target: nil, action: nil)
     private let removeMetricButton = NSButton(title: "Remove", target: nil, action: nil)
     private let metricPreview = NSTextField(labelWithString: "")
+    private let layoutControl = NSSegmentedControl(
+        labels: MenuBarLayout.allCases.map(\.title),
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
     private var menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults
     private let intervalPopUp = NSPopUpButton()
     private let historyPopUp = NSPopUpButton()
@@ -107,8 +113,16 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         moveMetricDownButton.setAccessibilityLabel("Move the selected metric later")
         removeMetricButton.setAccessibilityLabel("Remove the selected metric")
 
-        // Shows the string the status item is actually rendering, so the width
-        // cost of five metrics is visible before it reaches the menu bar.
+        layoutControl.target = self
+        layoutControl.action = #selector(layoutChanged)
+        layoutControl.controlSize = .small
+        layoutControl.setAccessibilityLabel("Menu bar layout")
+        layoutControl.toolTip =
+            "Stacked puts each value under its label in about half the width. Inline keeps one larger line."
+
+        // Lists the metrics and their live values. Stacked renders these in
+        // about half this width, so read it for content and order rather than
+        // as a literal picture of the menu bar.
         metricPreview.font = SearoomFont.metric(10)
         metricPreview.textColor = .secondaryLabelColor
         metricPreview.lineBreakMode = .byTruncatingTail
@@ -213,6 +227,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
         let grid = NSGridView(views: [
             [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), metricControls],
+            [makeLabel("LAYOUT", size: 10, color: .secondaryLabelColor), layoutControl],
             [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
             [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalPopUp],
             [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyPopUp],
@@ -310,6 +325,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private func syncFromModel() {
         menuBarMetrics = model.settings.menuBarMetrics
         metricTable.reloadData()
+        layoutControl.selectedSegment =
+            MenuBarLayout.allCases.firstIndex(of: model.settings.menuBarLayout) ?? 0
         syncMetricControls()
         let intervals = AppSettings.supportedSampleIntervals
         intervalPopUp.selectItem(at: intervals.firstIndex(of: model.settings.sampleInterval) ?? 1)
@@ -409,6 +426,13 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             ? "Mark only"
             : model.menuBarText
         metricPreview.toolTip = "\(menuBarMetrics.count) of \(MenuBarMetric.maximumCount) selected"
+    }
+
+    @objc private func layoutChanged() {
+        let index = max(0, layoutControl.selectedSegment)
+        guard MenuBarLayout.allCases.indices.contains(index) else { return }
+        model.updateSettings { $0.menuBarLayout = MenuBarLayout.allCases[index] }
+        syncMetricControls()
     }
 
     @objc private func addMetric() {

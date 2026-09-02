@@ -100,6 +100,22 @@ enum MenuBarMetric: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// How the status item arranges each metric.
+enum MenuBarLayout: String, CaseIterable, Codable, Sendable {
+    /// Label above value. Roughly half the width of `inline`, at the cost of
+    /// two small lines inside a menu bar that is only about 22pt tall.
+    case stacked
+    /// One line, label beside value. Larger text, considerably wider.
+    case inline
+
+    var title: String {
+        switch self {
+        case .stacked: "Stacked"
+        case .inline: "Inline"
+        }
+    }
+}
+
 struct AppSettings: Codable, Equatable, Sendable {
     static let supportedSampleIntervals: [TimeInterval] = [1, 2, 5, 10]
     static let supportedHistoryMinutes = [15, 30, 60, 180]
@@ -108,6 +124,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     var historyMinutes: Int
     var globalShortcut: GlobalShortcut?
     var menuBarMetrics: [MenuBarMetric]
+    var menuBarLayout: MenuBarLayout
     var dashboardSectionOrder: [DashboardSection]
     var hasCompletedLaunchAtLoginPrompt: Bool
 
@@ -116,6 +133,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         historyMinutes: Int = 30,
         globalShortcut: GlobalShortcut? = nil,
         menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults,
+        menuBarLayout: MenuBarLayout = .stacked,
         dashboardSectionOrder: [DashboardSection] = DashboardSection.defaults,
         hasCompletedLaunchAtLoginPrompt: Bool = false
     ) {
@@ -123,6 +141,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         self.historyMinutes = historyMinutes
         self.globalShortcut = globalShortcut
         self.menuBarMetrics = MenuBarMetric.normalized(menuBarMetrics)
+        self.menuBarLayout = menuBarLayout
         self.dashboardSectionOrder = DashboardSection.normalized(dashboardSectionOrder)
         self.hasCompletedLaunchAtLoginPrompt = hasCompletedLaunchAtLoginPrompt
         normalize()
@@ -147,6 +166,10 @@ struct AppSettings: Codable, Equatable, Sendable {
                 custom: legacyNames?.compactMap(MenuBarMetric.init(rawValue:))
             )
         }
+        // Decoded by raw name so an unknown layout falls back rather than
+        // failing the archive.
+        let layoutName = try values.decodeIfPresent(String.self, forKey: .menuBarLayout)
+        menuBarLayout = layoutName.flatMap(MenuBarLayout.init(rawValue:)) ?? .stacked
         // Decoded by raw name so a section retired in a later build is dropped
         // rather than failing the whole archive; normalization refills the gap.
         let sectionNames = try values.decodeIfPresent([String].self, forKey: .dashboardSectionOrder)
@@ -176,6 +199,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         try values.encode(historyMinutes, forKey: .historyMinutes)
         try values.encodeIfPresent(globalShortcut, forKey: .globalShortcut)
         try values.encode(menuBarMetrics, forKey: .menuBarMetrics)
+        try values.encode(menuBarLayout.rawValue, forKey: .menuBarLayout)
         try values.encode(dashboardSectionOrder, forKey: .dashboardSectionOrder)
         try values.encode(hasCompletedLaunchAtLoginPrompt, forKey: .hasCompletedLaunchAtLoginPrompt)
     }
@@ -185,6 +209,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case historyMinutes
         case globalShortcut
         case menuBarMetrics
+        case menuBarLayout
         case dashboardSectionOrder
         // Read during migration, never written again.
         case menuBarPreset

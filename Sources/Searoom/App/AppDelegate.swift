@@ -1,17 +1,6 @@
 import AppKit
 import ServiceManagement
 
-private enum MenuBarTone: Equatable {
-    case pressure(PressureLevel)
-    case activity(Bool)
-    case neutral
-}
-
-private struct MenuBarComponent: Equatable {
-    let text: String
-    let tone: MenuBarTone
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
@@ -24,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var lastStatusComponents: [MenuBarComponent] = []
     private var lastStatusLevel = PressureLevel.unavailable
     private var lastStatusMarkOnly: Bool?
+    private var lastStatusLayout: MenuBarLayout?
     private var lastStatusAppearance: NSAppearance.Name?
     private var lastAccessibilityValue = ""
     private var activeSampleInterval: TimeInterval?
@@ -45,7 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // No metrics selected means the mark-only item that Minimal used
             // to be; the status dot belongs to the text form.
             let isMarkOnly = model.settings.menuBarMetrics.isEmpty
-            button.imagePosition = isMarkOnly ? .imageOnly : .imageLeading
+            let showsImageOnly = isMarkOnly || model.settings.menuBarLayout == .stacked
+            button.imagePosition = showsImageOnly ? .imageOnly : .imageLeading
             button.image = isMarkOnly
                 ? SearoomIcon.image(for: .unavailable)
                 : SearoomStatusDot.image(for: .unavailable, appearance: button.effectiveAppearance)
@@ -268,9 +259,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let level = sample.overallPressureLevel
         let appearance = button.effectiveAppearance
             .bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
+        let layout = model.settings.menuBarLayout
         let appearanceChanged = appearance != lastStatusAppearance
+        let layoutChanged = layout != lastStatusLayout
         let presentationChanged = level != lastStatusLevel
             || isMarkOnly != lastStatusMarkOnly
+            || layoutChanged
             || appearanceChanged
 
         let desiredLength = isMarkOnly
@@ -281,8 +275,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
         if isMarkOnly {
             button.imagePosition = .imageOnly
+            button.attributedTitle = NSAttributedString(string: "")
             if presentationChanged || button.image == nil {
                 button.image = SearoomIcon.image(for: level)
+            }
+        } else if layout == .stacked {
+            // The whole item is one drawn image: two independently aligned
+            // lines per column are beyond what an attributed title can express.
+            // The dot is drawn inside it rather than set as the button's image.
+            button.imagePosition = .imageOnly
+            button.attributedTitle = NSAttributedString(string: "")
+            if components != lastStatusComponents || presentationChanged || button.image == nil {
+                button.image = MenuBarRenderer.image(
+                    components: components,
+                    level: level,
+                    appearance: button.effectiveAppearance
+                )
             }
         } else {
             button.imagePosition = .imageLeading
@@ -292,16 +300,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                     appearance: button.effectiveAppearance
                 )
             }
+            if components != lastStatusComponents || appearanceChanged || layoutChanged {
+                button.attributedTitle = attributedMenuBarTitle(
+                    components,
+                    appearance: button.effectiveAppearance
+                )
+            }
         }
-        if components != lastStatusComponents || appearanceChanged {
-            button.attributedTitle = attributedMenuBarTitle(
-                components,
-                appearance: button.effectiveAppearance
-            )
-            lastStatusComponents = components
-        }
+        lastStatusComponents = components
         lastStatusLevel = level
         lastStatusMarkOnly = isMarkOnly
+        lastStatusLayout = layout
         lastStatusAppearance = appearance
         let accessibilityValue = accessibilityDescription(for: sample, statusText: text)
         if accessibilityValue != lastAccessibilityValue {
@@ -352,13 +361,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         return title
     }
 
-    private func compactTemperature(_ sample: SystemSample) -> String {
-        let source = MetricFormat.fixedLabel(sample.temperatureSource.compactLabel, columns: 4)
-        let value = MetricFormat.fixedField(
-            MetricFormat.temperature(sample.temperatureCelsius),
-            columns: 5
+    /// The label is the sensor source, padded so that switching between, say,
+    /// BAT and SOC cannot move the reading beside it.
+    private func temperatureComponent(_ sample: SystemSample) -> MenuBarComponent {
+        component(
+            MetricFormat.fixedLabel(sample.temperatureSource.compactLabel, columns: 4) + " ",
+            MetricFormat.fixedField(MetricFormat.temperature(sample.temperatureCelsius), columns: 5),
+            pressure: sample.thermalPressureLevel
         )
-        return "\(source) \(value)"
     }
 
     private func powerComponents(_ sample: SystemSample) -> [MenuBarComponent] {
@@ -371,8 +381,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let sourceField = MetricFormat.fixedField(source, columns: 8)
         let mode = MetricFormat.fixedField(sample.isLowPowerModeEnabled ? "ON" : "OFF", columns: 3)
         return [
-            component("PWR \(sourceField)", pressure: powerLevel(sample)),
-            MenuBarComponent(text: "LPM \(mode)", tone: .activity(sample.isLowPowerModeEnabled))
+            component("PWR ", sourceField, pressure: powerLevel(sample)),
+            MenuBarComponent(label: "LPM ", value: mode, tone: .activity(sample.isLowPowerModeEnabled))
         ]
     }
 
@@ -382,80 +392,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     ) -> [MenuBarComponent] {
         switch metric {
         case .cpuUsage:
-            [component("CPU \(menuPercent(sample.cpuUsage))", pressure: usageLevel(sample.cpuUsage))]
+            [component("CPU ", menuPercent(sample.cpuUsage), pressure: usageLevel(sample.cpuUsage))]
         case .cpuPressure:
-            [component("CPU-P \(menuPressure(sample.cpuPressureLevel))", pressure: sample.cpuPressureLevel)]
+            [component("CPU-P ", menuPressure(sample.cpuPressureLevel), pressure: sample.cpuPressureLevel)]
         case .memoryUsed:
-            [component("RAM \(menuBytes(sample.memoryUsed))", pressure: sample.memoryPressureLevel)]
+            [component("RAM ", menuBytes(sample.memoryUsed), pressure: sample.memoryPressureLevel)]
         case .memoryFree:
-            [component("FREE \(menuBytes(sample.memoryAvailable))", pressure: sample.memoryPressureLevel)]
+            [component("FREE ", menuBytes(sample.memoryAvailable), pressure: sample.memoryPressureLevel)]
         case .memoryFreeUsed:
             [component(
-                "FREE \(menuBytes(sample.memoryAvailable))/USED \(menuBytes(sample.memoryUsed))",
+                "FREE ",
+                "\(menuBytes(sample.memoryAvailable))/USED \(menuBytes(sample.memoryUsed))",
                 pressure: sample.memoryPressureLevel
             )]
         case .memoryPressure:
-            [component("MEM-P \(menuPressure(sample.memoryPressureLevel))", pressure: sample.memoryPressureLevel)]
+            [component("MEM-P ", menuPressure(sample.memoryPressureLevel), pressure: sample.memoryPressureLevel)]
         case .swapUsed:
-            [component("SWAP \(menuBytes(sample.swapUsed))", pressure: sample.memoryPressureLevel)]
+            [component("SWAP ", menuBytes(sample.swapUsed), pressure: sample.memoryPressureLevel)]
         case .swapIn:
             [component(
-                "S-IN \(menuRate(sample.swapInPerSecond))",
+                "S-IN ",
+                menuRate(sample.swapInPerSecond),
                 pressure: swapLevel(sample.swapInPerSecond, sample: sample)
             )]
         case .swapOut:
             [component(
-                "S-OUT \(menuRate(sample.swapOutPerSecond))",
+                "S-OUT ",
+                menuRate(sample.swapOutPerSecond),
                 pressure: swapLevel(sample.swapOutPerSecond, sample: sample)
             )]
         case .temperature:
-            [component(compactTemperature(sample), pressure: sample.thermalPressureLevel)]
+            [temperatureComponent(sample)]
         case .thermalPressure:
-            [component("THERM \(menuPressure(sample.thermalPressureLevel))", pressure: sample.thermalPressureLevel)]
+            [component("THERM ", menuPressure(sample.thermalPressureLevel), pressure: sample.thermalPressureLevel)]
         case .gpuUsage:
-            [component("GPU \(menuPercent(sample.gpuUsage))", pressure: sample.gpuPressureLevel)]
+            [component("GPU ", menuPercent(sample.gpuUsage), pressure: sample.gpuPressureLevel)]
         case .gpuPressure:
-            [component("GPU-P \(menuPressure(sample.gpuPressureLevel))", pressure: sample.gpuPressureLevel)]
+            [component("GPU-P ", menuPressure(sample.gpuPressureLevel), pressure: sample.gpuPressureLevel)]
         case .gpuMemory:
-            [component("VRAM \(menuOptionalBytes(sample.gpuMemoryUsedBytes))", pressure: sample.gpuPressureLevel)]
+            [component("VRAM ", menuOptionalBytes(sample.gpuMemoryUsedBytes), pressure: sample.gpuPressureLevel)]
         case .networkDownload:
-            [activityComponent("↓\(menuRate(sample.networkDownloadPerSecond))", value: sample.networkDownloadPerSecond)]
+            [activityComponent("↓", menuRate(sample.networkDownloadPerSecond), value: sample.networkDownloadPerSecond)]
         case .networkUpload:
-            [activityComponent("↑\(menuRate(sample.networkUploadPerSecond))", value: sample.networkUploadPerSecond)]
+            [activityComponent("↑", menuRate(sample.networkUploadPerSecond), value: sample.networkUploadPerSecond)]
         case .diskRead:
-            [activityComponent("R \(menuRate(sample.diskReadPerSecond))", value: sample.diskReadPerSecond)]
+            [activityComponent("R ", menuRate(sample.diskReadPerSecond), value: sample.diskReadPerSecond)]
         case .diskWrite:
-            [activityComponent("W \(menuRate(sample.diskWritePerSecond))", value: sample.diskWritePerSecond)]
+            [activityComponent("W ", menuRate(sample.diskWritePerSecond), value: sample.diskWritePerSecond)]
         case .diskFree:
             [MenuBarComponent(
-                text: "DISK \(menuOptionalBytes(sample.diskAvailableBytes))",
+                label: "DISK ",
+                value: menuOptionalBytes(sample.diskAvailableBytes),
                 tone: .neutral
             )]
         case .fan:
-            [component("FAN \(menuFan(sample))", pressure: fanLevel(sample))]
+            [component("FAN ", menuFan(sample), pressure: fanLevel(sample))]
         case .power:
             powerComponents(sample)
         case .uptime:
             [MenuBarComponent(
-                text: "UP \(MetricFormat.fixedField(MetricFormat.uptime(sample.uptime), columns: 9))",
+                label: "UP ",
+                value: MetricFormat.fixedField(MetricFormat.uptime(sample.uptime), columns: 9),
                 tone: .neutral
             )]
         case .processCPU:
             [component(
-                "SR-CPU \(MetricFormat.fixedField(MetricFormat.unboundedPercent(sample.processCPUUsage), columns: 5))",
+                "SR-CPU ",
+                MetricFormat.fixedField(MetricFormat.unboundedPercent(sample.processCPUUsage), columns: 5),
                 pressure: usageLevel(sample.processCPUUsage)
             )]
         case .processMemory:
-            [component("SR-RAM \(menuBytes(sample.processMemoryBytes))", pressure: sample.memoryPressureLevel)]
+            [component("SR-RAM ", menuBytes(sample.processMemoryBytes), pressure: sample.memoryPressureLevel)]
         }
     }
 
-    private func component(_ text: String, pressure: PressureLevel) -> MenuBarComponent {
-        MenuBarComponent(text: text, tone: .pressure(pressure))
+    private func component(
+        _ label: String,
+        _ value: String,
+        pressure: PressureLevel
+    ) -> MenuBarComponent {
+        MenuBarComponent(label: label, value: value, tone: .pressure(pressure))
     }
 
-    private func activityComponent(_ text: String, value: Double) -> MenuBarComponent {
-        MenuBarComponent(text: text, tone: .activity(value >= 1))
+    private func activityComponent(
+        _ label: String,
+        _ text: String,
+        value: Double
+    ) -> MenuBarComponent {
+        MenuBarComponent(label: label, value: text, tone: .activity(value >= 1))
     }
 
     private func usageLevel(_ value: Double?) -> PressureLevel {

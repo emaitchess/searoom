@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The menu bar stacks each metric's label above its value by default, which is
+  about 61% of the previous width for the same five metrics and makes each
+  label unambiguously belong to the reading beneath it. `Inline` in Settings
+  restores the single larger line. Readings still cannot move the item as they
+  change.
 - The menu bar is no longer built from presets. Choose up to five metrics in
   any order, in Settings or from the status item's Menu Bar submenu. Choosing
   none shows the Searoom mark alone, which is what Minimal used to be.

@@ -129,6 +129,80 @@ final class SearoomTests: XCTestCase {
     // One row per preset that used to exist. An upgrade must keep showing what
     // it showed before, and this is the only thing standing between a user and
     // a silently rearranged menu bar.
+    // The stacked layout must keep the promise the inline one made: a reading
+    // changing width may never move anything. The padded value reserves the
+    // widest reading the field can hold, and the column is measured from that.
+    @MainActor
+    func testStackedColumnWidthIsUnmovedByTheReading() {
+        func cpu(_ reading: String) -> MenuBarComponent {
+            MenuBarComponent(
+                label: "CPU ",
+                value: MetricFormat.fixedField(reading, columns: 4),
+                tone: .neutral
+            )
+        }
+        let narrow = cpu("4%")
+        let wide = cpu("100%")
+        XCTAssertEqual(MenuBarRenderer.columnWidth(narrow), MenuBarRenderer.columnWidth(wide))
+        XCTAssertEqual(
+            MenuBarRenderer.imageWidth(for: [narrow], includesDot: true),
+            MenuBarRenderer.imageWidth(for: [wide], includesDot: true)
+        )
+
+        // Several columns, only one of which changes, still total the same.
+        let rate = { (reading: String) in
+            MenuBarComponent(
+                label: "↓",
+                value: MetricFormat.fixedField(reading, columns: 7),
+                tone: .neutral
+            )
+        }
+        XCTAssertEqual(
+            MenuBarRenderer.imageWidth(for: [narrow, rate("1K")], includesDot: true),
+            MenuBarRenderer.imageWidth(for: [wide, rate("999.9M")], includesDot: true)
+        )
+    }
+
+    // A value that overflows its documented field is allowed to widen the item
+    // rather than truncate, which is the one sanctioned exception.
+    @MainActor
+    func testStackedColumnWidensRatherThanTruncatingAnOverflow() {
+        let normal = MenuBarComponent(
+            label: "RAM ",
+            value: MetricFormat.fixedField("27G", columns: 5),
+            tone: .neutral
+        )
+        let overflowing = MenuBarComponent(
+            label: "RAM ",
+            value: MetricFormat.fixedField("1024.5G", columns: 5),
+            tone: .neutral
+        )
+        XCTAssertGreaterThan(
+            MenuBarRenderer.columnWidth(overflowing),
+            MenuBarRenderer.columnWidth(normal)
+        )
+    }
+
+    // The reason for stacking at all. If this stops holding, the layout is
+    // costing legibility without buying the width back.
+    @MainActor
+    func testStackedLayoutIsNarrowerThanInline() {
+        let components = [
+            MenuBarComponent(label: "CPU ", value: MetricFormat.fixedField("4%", columns: 4), tone: .neutral),
+            MenuBarComponent(label: "FREE ", value: MetricFormat.fixedField("26G", columns: 5), tone: .neutral),
+            MenuBarComponent(label: "BAT ", value: MetricFormat.fixedField("28°C", columns: 5), tone: .neutral),
+            MenuBarComponent(label: "GPU ", value: MetricFormat.fixedField("19%", columns: 4), tone: .neutral),
+            MenuBarComponent(label: "↓", value: MetricFormat.fixedField("1K", columns: 7), tone: .neutral)
+        ]
+        let stacked = MenuBarRenderer.imageWidth(for: components, includesDot: true)
+        let inlineText = components.map(\.text).joined(separator: "·")
+        let inline = NSAttributedString(
+            string: inlineText,
+            attributes: [.font: SearoomFont.metric(10.5)]
+        ).size().width
+        XCTAssertLessThan(stacked, inline * 0.75, "stacked should be well under three quarters of inline")
+    }
+
     func testEveryLegacyPresetMigratesToItsMetrics() throws {
         let expected: [String: [MenuBarMetric]] = [
             "balanced": [.cpuUsage, .memoryUsed],
