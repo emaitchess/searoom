@@ -781,6 +781,29 @@ final class SearoomTests: XCTestCase {
         }
     }
 
+    // Uppercase readings have no descenders, so a line box carries slack below
+    // the baseline that nothing occupies. Centring the box leaves text high;
+    // this centres the caps instead.
+    @MainActor
+    func testTextIsCentredByCapHeightNotLineBox() {
+        let strip = NSRect(x: 12, y: 984, width: 406, height: DashboardLayout.selfHeight)
+        let font = SearoomFont.metric(10.5)
+        let y = DashboardView.centredTextY(in: strip, font: font)
+
+        let baseline = y + font.ascender
+        let capTop = baseline - font.capHeight
+        let above = capTop - strip.minY
+        let below = strip.maxY - baseline
+        XCTAssertEqual(above, below, accuracy: 0.01, "the caps should sit centred in the strip")
+
+        // The old approach put the line box at a fixed inset, which is what
+        // left the text looking high.
+        let boxTop = strip.minY + 12
+        let oldAbove = boxTop + font.ascender - font.capHeight - strip.minY
+        let oldBelow = strip.maxY - (boxTop + font.ascender)
+        XCTAssertGreaterThan(oldBelow - oldAbove, 4, "the bug this replaced was over 4pt")
+    }
+
     // The intended geometry, pinned so nothing drifts by accident. These began
     // as the literals DashboardView used to carry; the info card was since
     // shortened from 88 to 66 deliberately, which is why everything below it

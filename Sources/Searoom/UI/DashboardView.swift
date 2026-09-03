@@ -681,18 +681,20 @@ final class DashboardView: NSView {
         let summary = "SEAROOM · CPU \(MetricFormat.unboundedPercent(sample.processCPUUsage))"
             + " · RAM \(MetricFormat.compactBytes(sample.processMemoryBytes, unit: model.dashboardUnitState.byteUnit(for: .processMemory)))"
             + " · SAMPLE \(String(format: "%.0f", model.settings.sampleInterval))S"
+        let summaryWidth = rect.width - 28
+        let font = fittedMetricFont(
+            summary,
+            maximumSize: 10.5,
+            minimumSize: 8.5,
+            width: summaryWidth
+        )
         let summaryRect = NSRect(
             x: rect.minX + 14,
-            y: rect.minY + 12,
-            width: rect.width - 28,
-            height: 18
+            y: Self.centredTextY(in: rect, font: font),
+            width: summaryWidth,
+            height: textSize(summary, font: font).height
         )
-        drawText(
-            summary,
-            in: summaryRect,
-            font: fittedMetricFont(summary, maximumSize: 10.5, minimumSize: 8.5, width: summaryRect.width),
-            color: theme.ink
-        )
+        drawText(summary, in: summaryRect, font: font, color: theme.ink)
     }
 
     private func drawExtrasCard(rect: NSRect, sample: SystemSample, theme: SearoomTheme) {
@@ -1530,6 +1532,17 @@ final class DashboardView: NSView {
 
     private func textSize(_ text: String, font: NSFont) -> NSSize {
         (text as NSString).size(withAttributes: [.font: font])
+    }
+
+    /// The y at which to draw one line of text so its *glyphs* sit centred in
+    /// `rect`, rather than its line box.
+    ///
+    /// These strings are uppercase and carry no descenders, so the line box
+    /// holds slack below the baseline that nothing occupies. Centring the box
+    /// therefore leaves the text visibly high: in the 42pt accountability strip
+    /// it put 14.9pt above the caps and 19.5pt below them.
+    static func centredTextY(in rect: NSRect, font: NSFont) -> CGFloat {
+        rect.minY + (rect.height - font.capHeight) / 2 - (font.ascender - font.capHeight)
     }
 
     private func fittedMetricFont(
