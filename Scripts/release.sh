@@ -121,6 +121,18 @@ if [[ "$PUBLISH" == 1 ]]; then
     [[ "$CI_CONCLUSION" == "success" ]] \
         || fail "CI concluded '$CI_CONCLUSION' for $HEAD_SHA, so $TAG will not be published: $CI_URL"
     echo "CI           success ($CI_URL)"
+
+    # The curated entry for this version, so the release page says what changed
+    # instead of making a reader diff commits. Read here rather than at the end
+    # so a missing entry fails before notarization rather than after it.
+    CHANGELOG_SECTION="$(awk -v heading="## [$VERSION]" '
+        index($0, heading) == 1 { capture = 1; next }
+        capture && /^## \[/ { exit }
+        capture { print }
+    ' "$REPOSITORY_ROOT/CHANGELOG.md")"
+    [[ -n "${CHANGELOG_SECTION//[[:space:]]/}" ]] \
+        || fail "CHANGELOG.md has no entries under '## [$VERSION]'; write them before publishing"
+    echo "Changelog    $(grep -c '^- ' <<<"$CHANGELOG_SECTION") entries"
 fi
 echo "OK"
 
@@ -257,8 +269,8 @@ NOTES="Requires macOS 14 or later on Apple silicon. Both downloads are signed wi
 
 \`Searoom.dmg\` is the one to take: drag Searoom to Applications. Launch at login needs the app in a stable location, and an app left in Downloads can be run from a randomised read-only path instead. \`Searoom.zip\` is there for scripted installs.
 
-Searoom has no updater and no network client, so new versions are announced here only. Watch the repository's releases to hear about them.
-
+Searoom has no background updater and downloads nothing by itself. Its only network request is the update check in Settings, made when you ask for it, which reads the current version number from searoom.app and nothing else.
+$CHANGELOG_SECTION
 SHA-256:
 
     Searoom.dmg  $DMG_CHECKSUM
