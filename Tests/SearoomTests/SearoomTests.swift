@@ -781,9 +781,10 @@ final class SearoomTests: XCTestCase {
         }
     }
 
-    // The coordinates below are the ones DashboardView carried as literals
-    // before the layout became computed. If this test fails, the refactor
-    // moved the dashboard rather than merely deriving it.
+    // The intended geometry, pinned so nothing drifts by accident. These began
+    // as the literals DashboardView used to carry; the info card was since
+    // shortened from 88 to 66 deliberately, which is why everything below it
+    // sits 22pt higher. Change these only alongside a deliberate layout change.
     func testDefaultLayoutReproducesTheOriginalFixedGeometry() {
         let layout = DashboardLayout.make(order: DashboardSection.defaults, width: 430)
         let expected: [(DashboardSection, NSRect)] = [
@@ -794,17 +795,17 @@ final class SearoomTests: XCTestCase {
             (.gpuMemory, NSRect(x: 12, y: 418, width: 198, height: 158)),
             (.disk, NSRect(x: 220, y: 418, width: 198, height: 158)),
             (.network, NSRect(x: 12, y: 586, width: 406, height: 122)),
-            (.info, NSRect(x: 12, y: 718, width: 406, height: 88)),
-            (.extras, NSRect(x: 12, y: 816, width: 406, height: 180))
+            (.info, NSRect(x: 12, y: 718, width: 406, height: 66)),
+            (.extras, NSRect(x: 12, y: 794, width: 406, height: 180))
         ]
         XCTAssertEqual(layout.slots.count, expected.count)
         for (index, pair) in expected.enumerated() {
             XCTAssertEqual(layout.slots[index].section, pair.0)
             XCTAssertEqual(layout.slots[index].rect, pair.1, "\(pair.0) moved")
         }
-        XCTAssertEqual(layout.selfRect, NSRect(x: 12, y: 1006, width: 406, height: 42))
-        XCTAssertEqual(layout.footerRect, NSRect(x: 0, y: 1062, width: 430, height: 38))
-        XCTAssertEqual(layout.contentHeight, 1120)
+        XCTAssertEqual(layout.selfRect, NSRect(x: 12, y: 984, width: 406, height: 42))
+        XCTAssertEqual(layout.footerRect, NSRect(x: 0, y: 1040, width: 430, height: 38))
+        XCTAssertEqual(layout.contentHeight, 1098)
     }
 
     func testFullWidthSectionAfterAnOddHalfRowLeavesNoOverlap() {

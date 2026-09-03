@@ -53,7 +53,9 @@ enum DashboardSection: String, CaseIterable, Codable, Sendable {
         switch self {
         case .cpu, .memory, .gpu, .thermal, .gpuMemory, .disk: 158
         case .network: 122
-        case .info: 88
+        // Fits its content rather than the grid: a title line and one reading,
+        // with no trend graph to fill the rest. At 88 the lower third was empty.
+        case .info: 66
         case .extras: 180
         }
     }
