@@ -17,6 +17,7 @@ enum MenuBarMetric: String, CaseIterable, Codable, Sendable {
     case gpuMemory
     case networkDownload
     case networkUpload
+    case networkUpDown
     case diskRead
     case diskWrite
     case diskFree
@@ -46,6 +47,7 @@ enum MenuBarMetric: String, CaseIterable, Codable, Sendable {
         case .gpuMemory: "GPU Memory"
         case .networkDownload: "Network Download"
         case .networkUpload: "Network Upload"
+        case .networkUpDown: "Network Upload/Download"
         case .diskRead: "Disk Read"
         case .diskWrite: "Disk Write"
         case .diskFree: "Disk Free"

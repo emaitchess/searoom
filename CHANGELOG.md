@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A `Network Upload/Download` metric showing both directions in one menu-bar
+  slot, each on its own line with a compact arrow when the layout is stacked.
+- Dashboard cards can be rearranged. Drag a card to move it, or use the card
+  order list in Settings, which is the keyboard and VoiceOver equivalent. The
+  order is remembered. The Searoom accountability strip and the footer stay
+  where they are.
+
 ### Changed
 
 - The menu bar stacks each metric's label above its value by default, which is
@@ -20,21 +29,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keeps showing what it showed before. The LLM preset is the one imperfect
   case: it drew `RAM used/total`, which no single metric expresses, so it
   becomes RAM used, temperature, and GPU memory, and the total is lost.
-
-### Added
-
-- Dashboard cards can be rearranged. Drag a card to move it, or use the card
-  order list in Settings, which is the keyboard and VoiceOver equivalent. The
-  order is remembered. The Searoom accountability strip and the footer stay
-  where they are.
-
-### Changed
-
 - Releases are now gated on continuous integration. `Scripts/release.sh
   --publish` refuses to tag or publish from a commit whose CI run did not
   conclude successfully, and a published release is re-checked against the
   artifacts attached to it: notarization, stapling, and the SHA-256 values in
   the release notes.
+
+### Fixed
+
+- Stacked menu-bar lines are positioned by baseline rather than by line box,
+  so they no longer sit a point low in a 22pt menu bar.
 
 ## [0.2.0] - 2026-09-02
 

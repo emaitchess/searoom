@@ -435,6 +435,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             [activityComponent("↓", menuRate(sample.networkDownloadPerSecond), value: sample.networkDownloadPerSecond)]
         case .networkUpload:
             [activityComponent("↑", menuRate(sample.networkUploadPerSecond), value: sample.networkUploadPerSecond)]
+        case .networkUpDown:
+            // One slot carrying both directions. Each arrow labels its own
+            // reading, so the stacked layout gives both lines the reading
+            // treatment rather than dimming the upper one as a label.
+            [MenuBarComponent(
+                label: "↓",
+                value: menuRate(sample.networkDownloadPerSecond),
+                tone: .activity(sample.networkDownloadPerSecond >= 1),
+                second: MenuBarComponent.Pair(
+                    label: "↑",
+                    value: menuRate(sample.networkUploadPerSecond),
+                    tone: .activity(sample.networkUploadPerSecond >= 1)
+                )
+            )]
         case .diskRead:
             [activityComponent("R ", menuRate(sample.diskReadPerSecond), value: sample.diskReadPerSecond)]
         case .diskWrite:

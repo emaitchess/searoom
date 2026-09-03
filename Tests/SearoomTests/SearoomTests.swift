@@ -163,6 +163,62 @@ final class SearoomTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testPairedNetworkMetricStacksBothDirections() {
+        XCTAssertEqual(MenuBarMetric.networkUpDown.title, "Network Upload/Download")
+
+        func pair(_ down: String, _ up: String) -> MenuBarComponent {
+            MenuBarComponent(
+                label: "↓",
+                value: MetricFormat.fixedField(down, columns: 7),
+                tone: .activity(true),
+                second: MenuBarComponent.Pair(
+                    label: "↑",
+                    value: MetricFormat.fixedField(up, columns: 7),
+                    tone: .activity(true)
+                )
+            )
+        }
+        // Inline keeps both directions on one line, so the accessibility
+        // description and the inline layout still say everything.
+        let quiet = pair("1K", "0B")
+        XCTAssertTrue(quiet.text.contains("↓"))
+        XCTAssertTrue(quiet.text.contains("↑"))
+
+        // Neither direction changing may move the column, in either line.
+        XCTAssertEqual(
+            MenuBarRenderer.columnWidth(quiet),
+            MenuBarRenderer.columnWidth(pair("999.9M", "999.9M"))
+        )
+        XCTAssertEqual(
+            MenuBarRenderer.columnWidth(quiet),
+            MenuBarRenderer.columnWidth(pair("1K", "240K"))
+        )
+
+        // A pair is one slot, so it costs one of the five rather than two.
+        XCTAssertEqual(MenuBarMetric.normalized([.networkUpDown]).count, 1)
+    }
+
+    // Both lines have to fit the bar. Departure Mono's natural line height is
+    // 13pt at 9.5pt, so two stacked line boxes want 26pt in a 22pt bar; the
+    // renderer packs by cap height instead, and this is the guard.
+    @MainActor
+    func testStackedLinesFitTheMenuBarHeight() {
+        let label = SearoomFont.metric(MenuBarRenderer.labelFontSize)
+        let value = SearoomFont.metric(MenuBarRenderer.valueFontSize)
+        let bar = NSStatusBar.system.thickness
+        let labelOverValue = label.capHeight + MenuBarRenderer.lineGap + value.capHeight
+        let valueOverValue = value.capHeight * 2 + MenuBarRenderer.lineGap
+        XCTAssertLessThan(labelOverValue, bar)
+        XCTAssertLessThan(valueOverValue, bar)
+        // Room for the lower line's descender, so a future label with a
+        // descender cannot fall off the bottom.
+        XCTAssertLessThan(
+            (bar - valueOverValue) / 2 + valueOverValue - value.descender,
+            bar + 0.5
+        )
+    }
+
     // A value that overflows its documented field is allowed to widen the item
     // rather than truncate, which is the one sanctioned exception.
     @MainActor

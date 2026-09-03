@@ -116,6 +116,10 @@ enum SelfTest {
         check(MenuBarMetric.gpuMemory.title == "GPU Memory", "GPU memory metric title")
         check(MenuBarMetric.diskFree.title == "Disk Free", "disk free metric title")
         check(
+            MenuBarMetric.networkUpDown.title == "Network Upload/Download",
+            "paired network metric title"
+        )
+        check(
             MenuBarMetric.normalized([.cpuUsage, .cpuUsage, .temperature, .gpuUsage])
                 == [.cpuUsage, .temperature, .gpuUsage],
             "custom metric normalization"

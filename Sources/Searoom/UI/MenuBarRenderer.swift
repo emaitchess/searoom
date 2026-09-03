@@ -7,6 +7,16 @@ enum MenuBarTone: Equatable {
 }
 
 struct MenuBarComponent: Equatable {
+    /// A second reading stacked beneath the first, for metrics that are a pair
+    /// rather than a label and a number. Network up and down is the case: both
+    /// lines are readings, each labelled by its own arrow, so neither should be
+    /// dimmed the way a label is.
+    struct Pair: Equatable {
+        let label: String
+        let value: String
+        let tone: MenuBarTone
+    }
+
     /// Carries its own trailing separator, so a component with no gap between
     /// label and value (the network arrows) renders exactly as it always has.
     let label: String
@@ -14,8 +24,12 @@ struct MenuBarComponent: Equatable {
     /// changing width as the reading changes.
     let value: String
     let tone: MenuBarTone
+    var second: Pair?
 
-    var text: String { label + value }
+    var text: String {
+        guard let second else { return label + value }
+        return "\(label)\(value) \(second.label)\(second.value)"
+    }
 
     /// The label without its padding, for the stacked layout where the space
     /// between label and value is vertical rather than horizontal.
@@ -45,6 +59,12 @@ enum MenuBarRenderer {
     /// gap inside a column, so the grouping reads correctly without needing a
     /// separator glyph at all.
     static let columnGap: CGFloat = 9
+    /// Between the cap heights of the two lines. Layout is packed by baseline
+    /// rather than by line box: Departure Mono's natural line height is 13pt at
+    /// 9.5pt, so two of them want 26pt inside a bar that is 22pt tall, and even
+    /// a small label over a value wants 23pt. Packing by cap height fits both
+    /// comfortably, and the readings carry no descenders to collide.
+    static let lineGap: CGFloat = 2.5
     static let dotGap: CGFloat = 5
     static let edgeInset: CGFloat = 4
 
@@ -54,9 +74,18 @@ enum MenuBarRenderer {
     /// reserves the widest reading the field can hold, so the column cannot
     /// change width as the reading changes, and neither can anything after it.
     static func columnWidth(_ component: MenuBarComponent) -> CGFloat {
-        max(
+        let valueFont = SearoomFont.metric(valueFontSize)
+        if let second = component.second {
+            // Both lines are readings, and both are measured padded, so the
+            // pair is as stable as any single reading.
+            return max(
+                width(component.label + component.value, font: valueFont),
+                width(second.label + second.value, font: valueFont)
+            )
+        }
+        return max(
             width(component.trimmedLabel, font: SearoomFont.metric(labelFontSize)),
-            width(component.value, font: SearoomFont.metric(valueFontSize))
+            width(component.value, font: valueFont)
         )
     }
 
@@ -99,22 +128,53 @@ enum MenuBarRenderer {
             var x = edgeInset + dotWidth + dotGap
             for component in components {
                 let column = columnWidth(component)
-                let label = NSAttributedString(
-                    string: component.trimmedLabel,
-                    attributes: [.font: labelFont, .foregroundColor: theme.subdued]
-                )
-                let value = NSAttributedString(
-                    string: component.trimmedValue,
-                    attributes: [.font: valueFont, .foregroundColor: color(for: component.tone, theme: theme)]
-                )
+                let lines: [(text: NSAttributedString, font: NSFont)]
+                if let second = component.second {
+                    // A pair is two readings, so neither line is dimmed.
+                    lines = [
+                        (NSAttributedString(
+                            string: component.label + component.trimmedValue,
+                            attributes: [
+                                .font: valueFont,
+                                .foregroundColor: color(for: component.tone, theme: theme)
+                            ]
+                        ), valueFont),
+                        (NSAttributedString(
+                            string: second.label
+                                + second.value.trimmingCharacters(in: .whitespaces),
+                            attributes: [
+                                .font: valueFont,
+                                .foregroundColor: color(for: second.tone, theme: theme)
+                            ]
+                        ), valueFont)
+                    ]
+                } else {
+                    lines = [
+                        (NSAttributedString(
+                            string: component.trimmedLabel,
+                            attributes: [.font: labelFont, .foregroundColor: theme.subdued]
+                        ), labelFont),
+                        (NSAttributedString(
+                            string: component.trimmedValue,
+                            attributes: [
+                                .font: valueFont,
+                                .foregroundColor: color(for: component.tone, theme: theme)
+                            ]
+                        ), valueFont)
+                    ]
+                }
                 // Both lines lead from the same edge, matching the dashboard's
                 // rule that values align leading. Centring would look tidier
                 // and would move the reading every time a digit appeared.
-                let labelHeight = label.size().height
-                let valueHeight = value.size().height
-                let top = max(0, (height - labelHeight - valueHeight) / 2)
-                label.draw(in: NSRect(x: x, y: top, width: column, height: labelHeight))
-                value.draw(in: NSRect(x: x, y: top + labelHeight, width: column, height: valueHeight))
+                let caps = lines.map(\.font.capHeight)
+                let block = caps.reduce(0, +) + lineGap * CGFloat(lines.count - 1)
+                var baseline = (height - block) / 2 + caps[0]
+                for (index, line) in lines.enumerated() {
+                    // draw(at:) places the line box, whose baseline sits one
+                    // ascender below it.
+                    line.text.draw(at: NSPoint(x: x, y: baseline - line.font.ascender))
+                    if index + 1 < caps.count { baseline += lineGap + caps[index + 1] }
+                }
                 x += column + columnGap
             }
             return true
