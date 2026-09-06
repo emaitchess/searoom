@@ -34,31 +34,29 @@ unavailable.
 - Searoom's own CPU and resident-memory usage
 - Bounded dithered trend graphs for load-bearing metrics
 
-The menu bar can show Balanced, Searoom (free RAM and swap), Pressure, LLM,
-Compute, Network, Disk I/O, Swap Activity, Thermal, Power or icon-only telemetry.
-Text presets use AppKit's natural status-item width while reserving compact,
+The menu bar shows an ordered selection of up to five metrics, chosen in
+Settings or from the status item's Menu Bar submenu, defaulting to CPU usage,
+RAM used and temperature. The list covers pressure states, RAM free and used,
+swap, network and disk directions, GPU and GPU memory, disk free, temperature,
+fan, power, uptime, and Searoom's own CPU and memory. Duplicates are collapsed.
+Selecting nothing is a valid choice and gives the mark-only item, which is the
+only mode that shows the Searoom mark and the only one that stays a centred
+square. One selection can render as more than one group, so the limit of five
+counts selections rather than groups.
+
+Text layouts use AppKit's natural status-item width while reserving compact,
 fixed character columns only for changing values. Transitions such as `8%` to
 `10%` therefore do not shift neighboring menu-bar items or leave a full
-worst-case-width container around the text. Every text preset begins with a
+worst-case-width container around the text. Every text layout begins with a
 fixed-size semantic state dot: green for nominal, amber for busy, orange for
 constrained, red for critical, and gray while telemetry is unavailable. The dot
-uses the combined system pressure state and does not change the text column
-width. Individual metric groups use the same semantic colors for their own
-pressure, while active network and disk traffic use the non-alarm cool color and
-idle traffic is subdued. Compact `·` separators carry no surrounding spaces so
-multiple metrics remain glanceable without occupying unnecessary menu-bar
-width. Minimal mode retains the Searoom mark instead. A user-recorded global
-shortcut toggles the dashboard without requiring Accessibility or Input
-Monitoring permission.
-
-Custom mode provides up to three ordered metric slots and defaults to CPU usage,
-RAM used and temperature. Its compact metric list includes pressure states,
-separate or combined RAM free/used values, swap, network and disk directions,
-GPU and GPU memory, disk free, fan, power, uptime, and Searoom's own CPU and
-memory. Duplicate choices are collapsed and choosing `None` can reduce the
-display to one or two metrics. Changing the custom layout recalculates the
-natural text width; sampling updates reuse the selected metrics' stable value
-columns.
+uses the combined system pressure state, is not the Searoom mark, and does not
+change the text column width. Individual metric groups use the same semantic
+colors for their own pressure, while active network and disk traffic use the
+non-alarm cool color and idle traffic is subdued. Changing the selection
+recalculates the natural text width; sampling updates reuse the selected
+metrics' stable value columns. A user-recorded global shortcut toggles the
+dashboard without requiring Accessibility or Input Monitoring permission.
 
 The dashboard footer provides equal-width shortcuts to Settings, the system
 Activity Monitor, and Quit.

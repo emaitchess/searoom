@@ -92,7 +92,7 @@ Both `AppSettings` and `SystemSample` hand-write `init(from:)` and `CodingKeys` 
 
 ### Menu-bar rendering
 
-The status item does not compute a width from a worst-case string. Stability comes from `MetricFormat.fixedField` (right-pads) and `fixedLabel` (left-pads), which pad each value to a fixed column count that, in monospaced Departure Mono, keeps the rendered string a constant width as values change. `.minimal` is the only preset that shows the Searoom mark (`imagePosition = .imageOnly`, `squareLength`). Text presets use `imageLeading` with a fixed-size, non-template semantic pressure dot and `variableLength`; they never show the Searoom mark. `updateStatusItem()` rewrites the title only when its components change and regenerates imagery only when its pressure, preset, or appearance presentation changes.
+The status item does not compute a width from a worst-case string. Stability comes from `MetricFormat.fixedField` (right-pads) and `fixedLabel` (left-pads), which pad each value to a fixed column count that, in monospaced Departure Mono, keeps the rendered string a constant width as values change. An empty `menuBarMetrics` selection is the only state that shows the Searoom mark (`imagePosition = .imageOnly`, `squareLength`). Text layouts use `imageLeading` with a fixed-size, non-template semantic pressure dot and `variableLength`; they never show the Searoom mark. `updateStatusItem()` rewrites the title only when its components change and regenerates imagery only when its pressure, mark-only state, or appearance presentation changes.
 
 ### Unavailable is never zero
 
