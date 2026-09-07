@@ -17,7 +17,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Sample rate is four radio buttons rather than a pop-up. Four mutually
+- Sample rate offers every whole second from 1 to 10, on a slider matching the
+  trend window rather than a four-item pop-up. All four rates offered before
+  are still stops, so a stored setting carries over. The value is committed
+  when the drag ends, not on each tick: changing it restarts the sampling
+  timer, so writing per tick would tear the timer down and rebuild it up to
+  nine times for one gesture.
+- Superseded within the same unreleased block: sample rate was briefly four
+  radio buttons. Four mutually
   exclusive choices with descriptive labels is what radio buttons are for, and
   the pop-up hid three of the four behind a click while stretching to the full
   column width to show one short value. Laid out two by two: four across

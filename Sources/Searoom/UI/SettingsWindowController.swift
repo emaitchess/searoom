@@ -20,16 +20,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         action: nil
     )
     private var menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults
-    /// Four mutually exclusive choices with descriptive labels, which is what
-    /// radio buttons are for. A pop-up hides three of the four behind a click
-    /// and stretched to the full column width for one short value.
-    private let intervalRadios: [NSButton] = AppSettings.supportedSampleIntervals.map {
-        NSButton(
-            radioButtonWithTitle: AppSettings.sampleIntervalTitle($0),
-            target: nil,
-            action: nil
-        )
-    }
+    private let intervalSlider = NSSlider()
+    private let intervalValueLabel = NSTextField(labelWithString: "")
     private let historySlider = NSSlider()
     private let historyValueLabel = NSTextField(labelWithString: "")
     private let shortcutRecorder = ShortcutRecorderControl()
@@ -51,6 +43,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     /// The last slider stop that produced haptic feedback, so one tap is felt
     /// per detent crossed rather than one per mouse-dragged event.
     private var lastHapticHistoryIndex = -1
+    /// The same, for the sample-rate slider.
+    private var lastHapticIntervalIndex = -1
 
     init(model: AppModel, shortcutManager: GlobalShortcutManager) {
         self.model = model
@@ -153,35 +147,43 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         metricControls.spacing = 6
         metricControls.toolTip =
             "Choose up to \(MenuBarMetric.maximumCount) metrics. With none chosen the menu bar shows only the Searoom mark."
-        for (index, radio) in intervalRadios.enumerated() {
-            radio.controlSize = .small
-            radio.font = SearoomFont.system(11)
-            radio.target = self
-            radio.action = #selector(intervalChanged)
-            radio.tag = index
-        }
-        // Two rows of two rather than one row of four. Measured: four across is
-        // 323pt against the 305pt this column has, so one title would compress
-        // or truncate. Four stacked vertically is the usual macOS arrangement
-        // but costs about 84pt of height in a window that cannot scroll, and
-        // this pairs the two short values above the two long ones at 162pt wide
-        // and roughly 40pt tall.
-        let intervalRowOne = NSStackView(views: Array(intervalRadios.prefix(2)))
-        let intervalRowTwo = NSStackView(views: Array(intervalRadios.suffix(2)))
-        for row in [intervalRowOne, intervalRowTwo] {
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = 12
-            row.distribution = .fillEqually
-        }
-        let intervalGroup = NSStackView(views: [intervalRowOne, intervalRowTwo])
-        intervalGroup.orientation = .vertical
-        intervalGroup.alignment = .leading
-        intervalGroup.spacing = 4
-        intervalGroup.setAccessibilityLabel("Sample rate")
-        intervalGroup.setAccessibilityHelp(
+        // Same shape as the trend window below it: a track with ten stops and
+        // the value named beside it. Ten radio buttons would not fit the column
+        // and a pop-up hides nine choices behind a click.
+        intervalSlider.sliderType = .linear
+        intervalSlider.minValue = 0
+        intervalSlider.maxValue = Double(AppSettings.supportedSampleIntervals.count - 1)
+        intervalSlider.numberOfTickMarks = AppSettings.supportedSampleIntervals.count
+        intervalSlider.allowsTickMarkValuesOnly = true
+        intervalSlider.isContinuous = true
+        intervalSlider.controlSize = .small
+        intervalSlider.target = self
+        intervalSlider.action = #selector(intervalChanged)
+        intervalSlider.setAccessibilityLabel("Sample rate")
+        intervalSlider.setAccessibilityHelp(
             "How often Searoom reads the system. Longer intervals cost less."
         )
+        intervalValueLabel.font = SearoomFont.metric(11)
+        intervalValueLabel.textColor = .secondaryLabelColor
+        intervalValueLabel.alignment = .left
+        intervalValueLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        // Pinned to the widest value for the same reason as the trend window:
+        // otherwise the label resizes as the rate changes and slides the track
+        // sideways under the thumb.
+        let intervalFont = intervalValueLabel.font ?? SearoomFont.metric(11)
+        let widestInterval = AppSettings.supportedSampleIntervals
+            .map { AppSettings.sampleIntervalTitle($0) }
+            .map { ($0 as NSString).size(withAttributes: [.font: intervalFont]).width }
+            .max() ?? 0
+        intervalValueLabel.widthAnchor
+            .constraint(equalToConstant: ceil(widestInterval)).isActive = true
+
+        let intervalGroup = NSStackView(views: [intervalSlider, intervalValueLabel])
+        intervalGroup.orientation = .horizontal
+        intervalGroup.spacing = 10
+        intervalGroup.alignment = .centerY
+        intervalSlider.setContentHuggingPriority(.defaultLow, for: .horizontal)
         // A slider rather than a menu: 26 stops read as a range, and a menu that
         // long is worse to scan than a track you can drag. Tick-only values keep
         // every position a real setting instead of an interpolated one.
@@ -415,9 +417,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         syncMetricControls()
         let intervals = AppSettings.supportedSampleIntervals
         let intervalIndex = intervals.firstIndex(of: model.settings.sampleInterval) ?? 1
-        for (index, radio) in intervalRadios.enumerated() {
-            radio.state = index == intervalIndex ? .on : .off
-        }
+        intervalSlider.integerValue = intervalIndex
+        lastHapticIntervalIndex = intervalIndex
+        updateIntervalLabel(interval: intervals[intervalIndex])
         let historyValues = AppSettings.supportedHistoryMinutes
         let historyIndex = historyValues.firstIndex(of: model.settings.historyMinutes) ?? 1
         historySlider.integerValue = historyIndex
@@ -555,20 +557,30 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
     @objc private func moveMetricDown() { moveMetric(by: 1) }
 
-    @objc private func intervalChanged(_ sender: NSButton) {
+    @objc private func intervalChanged() {
         let values = AppSettings.supportedSampleIntervals
-        guard values.indices.contains(sender.tag) else { return }
-        // AppKit only groups radio buttons automatically when they share a
-        // superview and action, which these do, but the selection is set
-        // explicitly so the on-screen state cannot drift from the setting.
-        for radio in intervalRadios { radio.state = radio === sender ? .on : .off }
+        let index = min(values.count - 1, max(0, intervalSlider.integerValue))
+        let value = values[index]
 
-        // Clicking the rate already chosen is not a change, so it neither taps
-        // nor rewrites settings.
-        let value = values[sender.tag]
-        guard value != model.settings.sampleInterval else { return }
-        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .drawCompleted)
+        if index != lastHapticIntervalIndex {
+            lastHapticIntervalIndex = index
+            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .drawCompleted)
+        }
+        updateIntervalLabel(interval: value)
+
+        // Committing mid-drag matters more here than on the trend slider:
+        // AppDelegate restarts the sampling timer whenever this value changes,
+        // so writing on every tick would tear down and rebuild the timer up to
+        // nine times for one gesture.
+        let isStillDragging = NSApp.currentEvent?.type == .leftMouseDragged
+        guard !isStillDragging, value != model.settings.sampleInterval else { return }
         model.updateSettings { $0.sampleInterval = value }
+    }
+
+    private func updateIntervalLabel(interval: TimeInterval) {
+        let title = AppSettings.sampleIntervalTitle(interval)
+        intervalValueLabel.stringValue = title
+        intervalSlider.setAccessibilityValueDescription(title)
     }
 
     @objc private func historyChanged() {

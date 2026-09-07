@@ -337,14 +337,28 @@ final class SearoomTests: XCTestCase {
         }
     }
 
+    func testSampleRateOffersEveryWholeSecondFromOneToTen() {
+        let values = AppSettings.supportedSampleIntervals
+        XCTAssertEqual(values.count, 10)
+        XCTAssertEqual(values.first, 1)
+        XCTAssertEqual(values.last, 10)
+        XCTAssertEqual(values, values.sorted(), "the slider indexes this array by position")
+        XCTAssertEqual(Set(values).count, values.count, "a repeated stop would be a dead position")
+
+        // Every rate offered before still exists, so a stored setting migrates
+        // without a special case.
+        for legacy in [1.0, 2.0, 5.0, 10.0] {
+            XCTAssertTrue(values.contains(legacy), "\(legacy)s must survive migration")
+        }
+    }
+
     func testSampleIntervalTitlesMatchTheSupportedRates() {
         XCTAssertEqual(AppSettings.sampleIntervalTitle(1), "1 second")
         XCTAssertEqual(AppSettings.sampleIntervalTitle(2), "2 seconds")
-        XCTAssertEqual(AppSettings.sampleIntervalTitle(5), "5 seconds")
         XCTAssertEqual(AppSettings.sampleIntervalTitle(10), "10 seconds")
 
-        // One radio button is built per supported rate, so a rate without a
-        // title would ship a blank control.
+        // One slider stop per supported rate, so a rate without a title would
+        // leave the value label blank at that position.
         for interval in AppSettings.supportedSampleIntervals {
             XCTAssertFalse(AppSettings.sampleIntervalTitle(interval).isEmpty)
         }

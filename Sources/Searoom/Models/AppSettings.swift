@@ -119,7 +119,11 @@ enum MenuBarLayout: String, CaseIterable, Codable, Sendable {
 }
 
 struct AppSettings: Codable, Equatable, Sendable {
-    static let supportedSampleIntervals: [TimeInterval] = [1, 2, 5, 10]
+    /// Every whole second from 1 to 10. Settings presents these as a slider, so
+    /// the array order is the slider position and the values must stay sorted
+    /// ascending. The four rates offered before (1, 2, 5, 10) are all still
+    /// here, so a stored setting migrates without a special case.
+    static let supportedSampleIntervals: [TimeInterval] = (1...10).map(TimeInterval.init)
     /// Trend window stops, in minutes: 15 and 30, then every hour to 24.
     ///
     /// Settings presents these as a slider, so the array order is the slider
