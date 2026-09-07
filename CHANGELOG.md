@@ -8,8 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Trackpad haptic feedback at each trend-window slider stop, and each time a
-  dragged dashboard card would land in a new slot. Both fire on the change
+- Trackpad haptic feedback when the sample rate changes, at each trend-window
+  slider stop, and each time a dragged dashboard card would land in a new slot. Both fire on the change
   rather than per event, so a slow gesture gives one tap per detent crossed.
   `NSHapticFeedbackManager` is part of AppKit, so this adds no dependency and
   no measurable size, and it is a no-op on hardware without a Force Touch

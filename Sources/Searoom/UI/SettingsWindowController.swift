@@ -562,7 +562,13 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         // superview and action, which these do, but the selection is set
         // explicitly so the on-screen state cannot drift from the setting.
         for radio in intervalRadios { radio.state = radio === sender ? .on : .off }
-        model.updateSettings { $0.sampleInterval = values[sender.tag] }
+
+        // Clicking the rate already chosen is not a change, so it neither taps
+        // nor rewrites settings.
+        let value = values[sender.tag]
+        guard value != model.settings.sampleInterval else { return }
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .drawCompleted)
+        model.updateSettings { $0.sampleInterval = value }
     }
 
     @objc private func historyChanged() {
