@@ -33,8 +33,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let emaitchessButton = NSButton(title: "PART OF EMAITCHESS ↗", target: nil, action: nil)
     private let orderTable = NSTableView()
     private let orderScroll = NSScrollView()
-    private let moveUpButton = NSButton(title: "Move Up", target: nil, action: nil)
-    private let moveDownButton = NSButton(title: "Move Down", target: nil, action: nil)
+    private let moveUpButton = NSButton(title: "Move Card Up", target: nil, action: nil)
+    private let moveDownButton = NSButton(title: "Move Card Down", target: nil, action: nil)
     private let resetOrderButton = NSButton(title: "Default Order", target: nil, action: nil)
     /// Mirrors the persisted order so the table has a stable data source; the
     /// dashboard can also change it by drag, so `show()` re-reads the model.
@@ -142,6 +142,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         metricControls.toolTip =
             "Choose up to \(MenuBarMetric.maximumCount) metrics. With none chosen the menu bar shows only the Searoom mark."
         intervalPopUp.addItems(withTitles: ["1 second", "2 seconds", "5 seconds", "10 seconds"])
+        intervalPopUp.setAccessibilityLabel("Sample rate")
+        intervalPopUp.setAccessibilityHelp(
+            "How often Searoom reads the system. Longer intervals cost less."
+        )
         // A slider rather than a menu: 26 stops read as a range, and a menu that
         // long is worse to scan than a track you can drag. Tick-only values keep
         // every position a real setting instead of an interpolated one.
@@ -334,6 +338,12 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             historyNote.note.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
             historyNote.note.topAnchor.constraint(equalTo: storageControls.bottomAnchor, constant: 20),
             historyNote.note.heightAnchor.constraint(equalToConstant: historyNote.height),
+            // The note is the only variable-height element and the window cannot
+            // scroll, so tie it to the footer. Without this the two are free to
+            // overlap and the failure is silent.
+            license.topAnchor.constraint(
+                greaterThanOrEqualTo: historyNote.note.bottomAnchor, constant: 16
+            ),
             license.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             license.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -19),
             emaitchessButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
@@ -497,11 +507,15 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     @objc private func historyChanged() {
         let values = AppSettings.supportedHistoryMinutes
         let value = values[min(values.count - 1, max(0, historySlider.integerValue))]
-        // The label tracks the drag; the setting is written on every tick the
-        // slider lands on, which is cheap because a window change only reprunes
-        // history rather than resampling anything.
+
+        // The label follows the thumb, but the setting is only written when the
+        // drag ends. The slider is continuous and has 26 stops, so committing on
+        // every tick would write settings up to 25 times for one gesture, and
+        // each write encodes JSON, hits UserDefaults, reprunes history and posts
+        // two notifications that redraw the dashboard and the menu bar.
         updateHistoryLabel(minutes: value)
-        guard value != model.settings.historyMinutes else { return }
+        let isStillDragging = NSApp.currentEvent?.type == .leftMouseDragged
+        guard !isStillDragging, value != model.settings.historyMinutes else { return }
         model.updateSettings { $0.historyMinutes = value }
     }
 
