@@ -20,7 +20,16 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         action: nil
     )
     private var menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults
-    private let intervalPopUp = NSPopUpButton()
+    /// Four mutually exclusive choices with descriptive labels, which is what
+    /// radio buttons are for. A pop-up hides three of the four behind a click
+    /// and stretched to the full column width for one short value.
+    private let intervalRadios: [NSButton] = AppSettings.supportedSampleIntervals.map {
+        NSButton(
+            radioButtonWithTitle: AppSettings.sampleIntervalTitle($0),
+            target: nil,
+            action: nil
+        )
+    }
     private let historySlider = NSSlider()
     private let historyValueLabel = NSTextField(labelWithString: "")
     private let shortcutRecorder = ShortcutRecorderControl()
@@ -144,9 +153,33 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         metricControls.spacing = 6
         metricControls.toolTip =
             "Choose up to \(MenuBarMetric.maximumCount) metrics. With none chosen the menu bar shows only the Searoom mark."
-        intervalPopUp.addItems(withTitles: ["1 second", "2 seconds", "5 seconds", "10 seconds"])
-        intervalPopUp.setAccessibilityLabel("Sample rate")
-        intervalPopUp.setAccessibilityHelp(
+        for (index, radio) in intervalRadios.enumerated() {
+            radio.controlSize = .small
+            radio.font = SearoomFont.system(11)
+            radio.target = self
+            radio.action = #selector(intervalChanged)
+            radio.tag = index
+        }
+        // Two rows of two rather than one row of four. Measured: four across is
+        // 323pt against the 305pt this column has, so one title would compress
+        // or truncate. Four stacked vertically is the usual macOS arrangement
+        // but costs about 84pt of height in a window that cannot scroll, and
+        // this pairs the two short values above the two long ones at 162pt wide
+        // and roughly 40pt tall.
+        let intervalRowOne = NSStackView(views: Array(intervalRadios.prefix(2)))
+        let intervalRowTwo = NSStackView(views: Array(intervalRadios.suffix(2)))
+        for row in [intervalRowOne, intervalRowTwo] {
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 12
+            row.distribution = .fillEqually
+        }
+        let intervalGroup = NSStackView(views: [intervalRowOne, intervalRowTwo])
+        intervalGroup.orientation = .vertical
+        intervalGroup.alignment = .leading
+        intervalGroup.spacing = 4
+        intervalGroup.setAccessibilityLabel("Sample rate")
+        intervalGroup.setAccessibilityHelp(
             "How often Searoom reads the system. Longer intervals cost less."
         )
         // A slider rather than a menu: 26 stops read as a range, and a menu that
@@ -196,13 +229,16 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         shortcutClearButton.heightAnchor.constraint(equalTo: shortcutRecorder.heightAnchor).isActive = true
         shortcutError.font = SearoomFont.system(10)
         shortcutError.textColor = .systemRed
+        // An empty label still has intrinsic height, so leaving it in the stack
+        // reserved a blank line under every shortcut row whether or not there
+        // was an error. NSStackView detaches hidden arranged subviews, so
+        // hiding it removes the space rather than merely blanking it.
+        shortcutError.isHidden = true
         let shortcutGroup = NSStackView(views: [shortcutControls, shortcutError])
         shortcutGroup.orientation = .vertical
         shortcutGroup.alignment = .width
         shortcutGroup.spacing = 3
 
-        intervalPopUp.target = self
-        intervalPopUp.action = #selector(intervalChanged)
         historySlider.target = self
         historySlider.action = #selector(historyChanged)
         launchButton.target = self
@@ -272,7 +308,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), metricControls],
             [makeLabel("LAYOUT", size: 10, color: .secondaryLabelColor), layoutControl],
             [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
-            [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalPopUp],
+            [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalGroup],
             [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyGroup],
             [makeLabel("CARD ORDER", size: 10, color: .secondaryLabelColor), orderGroup]
         ])
@@ -378,7 +414,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             MenuBarLayout.allCases.firstIndex(of: model.settings.menuBarLayout) ?? 0
         syncMetricControls()
         let intervals = AppSettings.supportedSampleIntervals
-        intervalPopUp.selectItem(at: intervals.firstIndex(of: model.settings.sampleInterval) ?? 1)
+        let intervalIndex = intervals.firstIndex(of: model.settings.sampleInterval) ?? 1
+        for (index, radio) in intervalRadios.enumerated() {
+            radio.state = index == intervalIndex ? .on : .off
+        }
         let historyValues = AppSettings.supportedHistoryMinutes
         let historyIndex = historyValues.firstIndex(of: model.settings.historyMinutes) ?? 1
         historySlider.integerValue = historyIndex
@@ -516,10 +555,14 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
     @objc private func moveMetricDown() { moveMetric(by: 1) }
 
-    @objc private func intervalChanged() {
+    @objc private func intervalChanged(_ sender: NSButton) {
         let values = AppSettings.supportedSampleIntervals
-        let value = values[max(0, intervalPopUp.indexOfSelectedItem)]
-        model.updateSettings { $0.sampleInterval = value }
+        guard values.indices.contains(sender.tag) else { return }
+        // AppKit only groups radio buttons automatically when they share a
+        // superview and action, which these do, but the selection is set
+        // explicitly so the on-screen state cannot drift from the setting.
+        for radio in intervalRadios { radio.state = radio === sender ? .on : .off }
+        model.updateSettings { $0.sampleInterval = values[sender.tag] }
     }
 
     @objc private func historyChanged() {
@@ -668,7 +711,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let previous = model.settings.globalShortcut
         guard let shortcut else {
             shortcutManager.unregister()
-            shortcutError.stringValue = ""
+            setShortcutError(nil)
             model.updateSettings { $0.globalShortcut = nil }
             shortcutClearButton.isEnabled = false
             return true
@@ -677,13 +720,18 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let status = shortcutManager.register(shortcut)
         guard status == noErr else {
             if let previous { _ = shortcutManager.register(previous) }
-            shortcutError.stringValue = "That shortcut is already in use."
+            setShortcutError("That shortcut is already in use.")
             return false
         }
-        shortcutError.stringValue = ""
+        setShortcutError(nil)
         model.updateSettings { $0.globalShortcut = shortcut }
         shortcutClearButton.isEnabled = true
         return true
+    }
+
+    private func setShortcutError(_ message: String?) {
+        shortcutError.stringValue = message ?? ""
+        shortcutError.isHidden = message == nil
     }
 
     private func makeLabel(_ text: String, size: CGFloat, color: NSColor) -> NSTextField {

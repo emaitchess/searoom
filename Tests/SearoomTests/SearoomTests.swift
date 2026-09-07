@@ -337,6 +337,19 @@ final class SearoomTests: XCTestCase {
         }
     }
 
+    func testSampleIntervalTitlesMatchTheSupportedRates() {
+        XCTAssertEqual(AppSettings.sampleIntervalTitle(1), "1 second")
+        XCTAssertEqual(AppSettings.sampleIntervalTitle(2), "2 seconds")
+        XCTAssertEqual(AppSettings.sampleIntervalTitle(5), "5 seconds")
+        XCTAssertEqual(AppSettings.sampleIntervalTitle(10), "10 seconds")
+
+        // One radio button is built per supported rate, so a rate without a
+        // title would ship a blank control.
+        for interval in AppSettings.supportedSampleIntervals {
+            XCTAssertFalse(AppSettings.sampleIntervalTitle(interval).isEmpty)
+        }
+    }
+
     func testTrendWindowTitlesReadAsDurations() {
         XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 15), "15 minutes")
         XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 30), "30 minutes")

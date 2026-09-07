@@ -128,6 +128,13 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// stored settings migrate without a special case.
     static let supportedHistoryMinutes: [Int] = [15, 30] + (1...24).map { $0 * 60 }
 
+    /// "1 second", "2 seconds". Shared so the control and anything else naming
+    /// an interval cannot word it differently.
+    static func sampleIntervalTitle(_ interval: TimeInterval) -> String {
+        let whole = Int(interval)
+        return whole == 1 ? "1 second" : "\(whole) seconds"
+    }
+
     /// "45 minutes", "1 hour", "3 hours". Used by the Settings slider label and
     /// anywhere else a window needs naming, so the two cannot word it
     /// differently.
