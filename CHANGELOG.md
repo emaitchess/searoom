@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Trackpad haptic feedback at each trend-window slider stop, and each time a
+  dragged dashboard card would land in a new slot. Both fire on the change
+  rather than per event, so a slow gesture gives one tap per detent crossed.
+  `NSHapticFeedbackManager` is part of AppKit, so this adds no dependency and
+  no measurable size, and it is a no-op on hardware without a Force Touch
+  trackpad.
+
 ### Changed
 
 - The trend window now runs from 15 minutes to 24 hours. It offers 15 and 30
@@ -13,6 +22,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   snaps to those stops rather than a four-item menu. The three windows that
   existed before (15 minutes, 30 minutes, 1 hour, 3 hours) are all still
   offered, so a stored preference carries over unchanged.
+- The trend-window value beside the slider is pinned to the width of the widest
+  value it can show. The strings range from 40.8pt for "1 hour" to 68.0pt for
+  "15 minutes", so without this the label resized as the value changed and
+  dragged the slider sideways under the thumb.
 - Windows longer than three hours keep their full span and retain every nth
   sample rather than every one. A 24 hour window therefore costs no more
   memory, disk, or scan time than the three hour window already did. Nothing

@@ -18,6 +18,9 @@ final class DashboardView: NSView {
     private var hoverOverlays: [DashboardTrendMetric: GraphHoverOverlayView] = [:]
     private let refreshClock = ContinuousClock()
     private var trendRefreshPolicy = DashboardTrendRefreshPolicy()
+    /// The slot a dragged card would drop into when feedback was last given,
+    /// so one tap is felt per slot crossed rather than per drag event.
+    private var lastHapticInsertion: Int?
     private var livePresentation: LivePresentation?
     private var cachedLayout: DashboardLayout?
     private var cachedLayoutWidth: CGFloat = 0
@@ -360,6 +363,7 @@ final class DashboardView: NSView {
             pendingUnitRegion = nil
             clearHover()
             NSCursor.closedHand.set()
+            lastHapticInsertion = nil
             activeDrag = ActiveDrag(
                 section: candidate.section,
                 rect: candidate.rect,
@@ -372,10 +376,21 @@ final class DashboardView: NSView {
             )
         }
         activeDrag?.point = point
-        activeDrag?.insertionIndex = currentLayout().insertionIndex(
+        let insertion = currentLayout().insertionIndex(
             for: point,
             excluding: candidate.section
         )
+        activeDrag?.insertionIndex = insertion
+
+        // One tap each time the card would land somewhere new. This is the
+        // gesture haptics exist for on macOS: a dragged thing crossing a
+        // detent, which is what .alignment means. Fired on the change rather
+        // than per mouse-dragged event, so a slow drag across one slot is one
+        // tap and not fifty.
+        if insertion != lastHapticInsertion {
+            lastHapticInsertion = insertion
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .drawCompleted)
+        }
         // Lets a drag reach a section scrolled out of view. The clip view still
         // refuses horizontal movement, so this cannot drift the x origin.
         autoscroll(with: event)
@@ -396,6 +411,7 @@ final class DashboardView: NSView {
         dragCandidate = nil
         pendingUnitRegion = nil
         activeDrag = nil
+        lastHapticInsertion = nil
         NSCursor.arrow.set()
         // Releasing outside the dashboard abandons the move rather than
         // dropping the card at whatever edge the pointer happened to leave by.
@@ -413,6 +429,7 @@ final class DashboardView: NSView {
         dragCandidate = nil
         pendingUnitRegion = nil
         activeDrag = nil
+        lastHapticInsertion = nil
         NSCursor.arrow.set()
         needsDisplay = true
     }

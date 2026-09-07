@@ -39,6 +39,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     /// Mirrors the persisted order so the table has a stable data source; the
     /// dashboard can also change it by drag, so `show()` re-reads the model.
     private var sectionOrder: [DashboardSection] = DashboardSection.defaults
+    /// The last slider stop that produced haptic feedback, so one tap is felt
+    /// per detent crossed rather than one per mouse-dragged event.
+    private var lastHapticHistoryIndex = -1
 
     init(model: AppModel, shortcutManager: GlobalShortcutManager) {
         self.model = model
@@ -159,7 +162,21 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         historySlider.setAccessibilityLabel("Trend window")
         historyValueLabel.font = SearoomFont.metric(11)
         historyValueLabel.textColor = .secondaryLabelColor
+        historyValueLabel.alignment = .left
         historyValueLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        // Pin the label to the widest value it will ever hold. Otherwise the
+        // label resizes as the text changes and the slider slides sideways
+        // under the thumb mid-drag, which is the one place a control must not
+        // move. Measured once here rather than guessed: the widest is not the
+        // longest window but "30 minutes".
+        let valueFont = historyValueLabel.font ?? SearoomFont.metric(11)
+        let widestValue = AppSettings.supportedHistoryMinutes
+            .map { AppSettings.historyWindowTitle(minutes: $0) }
+            .map { ($0 as NSString).size(withAttributes: [.font: valueFont]).width }
+            .max() ?? 0
+        historyValueLabel.widthAnchor
+            .constraint(equalToConstant: ceil(widestValue)).isActive = true
         shortcutRecorder.onChange = { [weak self] shortcut in
             self?.changeShortcut(shortcut) ?? false
         }
@@ -365,6 +382,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let historyValues = AppSettings.supportedHistoryMinutes
         let historyIndex = historyValues.firstIndex(of: model.settings.historyMinutes) ?? 1
         historySlider.integerValue = historyIndex
+        lastHapticHistoryIndex = historyIndex
         updateHistoryLabel(minutes: historyValues[historyIndex])
         shortcutRecorder.shortcut = model.settings.globalShortcut
         shortcutClearButton.isEnabled = model.settings.globalShortcut != nil
@@ -506,7 +524,17 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
     @objc private func historyChanged() {
         let values = AppSettings.supportedHistoryMinutes
-        let value = values[min(values.count - 1, max(0, historySlider.integerValue))]
+        let index = min(values.count - 1, max(0, historySlider.integerValue))
+        let value = values[index]
+
+        // One tap per detent crossed. NSHapticFeedbackManager is part of AppKit,
+        // so this adds no dependency and no bundle weight, and it is a no-op on
+        // hardware without a Force Touch trackpad. .levelChange is the pattern
+        // macOS uses for a slider passing a detent.
+        if index != lastHapticHistoryIndex {
+            lastHapticHistoryIndex = index
+            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .drawCompleted)
+        }
 
         // The label follows the thumb, but the setting is only written when the
         // drag ends. The slider is continuous and has 26 stops, so committing on
