@@ -17,6 +17,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Sample rate is four radio buttons rather than a pop-up. Four mutually
+  exclusive choices with descriptive labels is what radio buttons are for, and
+  the pop-up hid three of the four behind a click while stretching to the full
+  column width to show one short value. Laid out two by two: four across
+  measured 323pt against the 305pt the column has, and four stacked would have
+  cost about 84pt of height in a window that cannot scroll.
+- Removed the blank line reserved under the global shortcut row. The error
+  label was always present and empty, and an empty label still has intrinsic
+  height, so it held roughly 16pt whether or not there was an error. It is now
+  hidden when there is no message, which drops it from the layout entirely.
 - The trend window now runs from 15 minutes to 24 hours. It offers 15 and 30
   minutes then every hour to 24, and Settings presents it as a slider that
   snaps to those stops rather than a four-item menu. The three windows that
