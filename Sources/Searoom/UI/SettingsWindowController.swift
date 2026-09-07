@@ -28,6 +28,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let shortcutClearButton = NSButton(title: "Clear", target: nil, action: nil)
     private let shortcutError = NSTextField(labelWithString: "")
     private let launchButton = NSButton(checkboxWithTitle: "Launch Searoom at login", target: nil, action: nil)
+    private let hapticsButton = NSButton(checkboxWithTitle: "Trackpad feedback", target: nil, action: nil)
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
     private let updatesButton = NSButton(title: "Check for Updates", target: nil, action: nil)
     private let githubButton = NSButton(title: "GITHUB ↗", target: nil, action: nil)
@@ -245,6 +246,13 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         historySlider.action = #selector(historyChanged)
         launchButton.target = self
         launchButton.action = #selector(launchChanged)
+        hapticsButton.target = self
+        hapticsButton.action = #selector(hapticsChanged)
+        hapticsButton.setAccessibilityHelp(
+            "Taps the trackpad at each slider stop, when the sample rate changes, "
+                + "while scrubbing a chart, and when a dragged card would move. "
+                + "Has no effect without a Force Touch trackpad."
+        )
         resetHistoryButton.bezelStyle = .rounded
         resetHistoryButton.controlSize = .small
         resetHistoryButton.target = self
@@ -328,7 +336,11 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let storageSpacer = NSView()
         storageSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         storageSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let storageControls = NSStackView(views: [launchButton, storageSpacer, storageActions])
+        let toggles = NSStackView(views: [launchButton, hapticsButton])
+        toggles.orientation = .vertical
+        toggles.alignment = .leading
+        toggles.spacing = 6
+        let storageControls = NSStackView(views: [toggles, storageSpacer, storageActions])
         storageControls.orientation = .horizontal
         storageControls.alignment = .centerY
         storageControls.distribution = .fill
@@ -428,6 +440,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         shortcutRecorder.shortcut = model.settings.globalShortcut
         shortcutClearButton.isEnabled = model.settings.globalShortcut != nil
         launchButton.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        hapticsButton.state = model.settings.hapticsEnabled ? .on : .off
         sectionOrder = model.settings.dashboardSectionOrder
         let selected = orderTable.selectedRow
         orderTable.reloadData()
@@ -564,7 +577,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
         if index != lastHapticIntervalIndex {
             lastHapticIntervalIndex = index
-            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .drawCompleted)
+            Haptics.tap(.levelChange, enabled: model.settings.hapticsEnabled)
         }
         updateIntervalLabel(interval: value)
 
@@ -594,7 +607,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         // macOS uses for a slider passing a detent.
         if index != lastHapticHistoryIndex {
             lastHapticHistoryIndex = index
-            NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .drawCompleted)
+            Haptics.tap(.levelChange, enabled: model.settings.hapticsEnabled)
         }
 
         // The label follows the thumb, but the setting is only written when the
@@ -613,6 +626,14 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         historySlider.setAccessibilityValueDescription(
             AppSettings.historyWindowTitle(minutes: minutes)
         )
+    }
+
+    @objc private func hapticsChanged() {
+        let enabled = hapticsButton.state == .on
+        model.updateSettings { $0.hapticsEnabled = enabled }
+        // Confirm the setting with the thing it controls, so turning it on
+        // demonstrates itself.
+        Haptics.tap(.levelChange, enabled: enabled)
     }
 
     @objc private func launchChanged() {

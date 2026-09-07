@@ -157,6 +157,9 @@ struct AppSettings: Codable, Equatable, Sendable {
     var menuBarLayout: MenuBarLayout
     var dashboardSectionOrder: [DashboardSection]
     var hasCompletedLaunchAtLoginPrompt: Bool
+    /// Trackpad feedback on the controls and gestures that have detents. On by
+    /// default, and a no-op anyway without a Force Touch trackpad.
+    var hapticsEnabled: Bool
 
     init(
         sampleInterval: TimeInterval = 2,
@@ -165,7 +168,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults,
         menuBarLayout: MenuBarLayout = .stacked,
         dashboardSectionOrder: [DashboardSection] = DashboardSection.defaults,
-        hasCompletedLaunchAtLoginPrompt: Bool = false
+        hasCompletedLaunchAtLoginPrompt: Bool = false,
+        hapticsEnabled: Bool = true
     ) {
         self.sampleInterval = sampleInterval
         self.historyMinutes = historyMinutes
@@ -174,6 +178,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         self.menuBarLayout = menuBarLayout
         self.dashboardSectionOrder = DashboardSection.normalized(dashboardSectionOrder)
         self.hasCompletedLaunchAtLoginPrompt = hasCompletedLaunchAtLoginPrompt
+        self.hapticsEnabled = hapticsEnabled
         normalize()
     }
 
@@ -211,6 +216,9 @@ struct AppSettings: Codable, Equatable, Sendable {
             Bool.self,
             forKey: .hasCompletedLaunchAtLoginPrompt
         ) ?? true
+        // Absent in settings written before the toggle existed, which should
+        // keep the feedback they already had rather than silently losing it.
+        hapticsEnabled = try values.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? true
         normalize()
     }
 
@@ -232,6 +240,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         try values.encode(menuBarLayout.rawValue, forKey: .menuBarLayout)
         try values.encode(dashboardSectionOrder, forKey: .dashboardSectionOrder)
         try values.encode(hasCompletedLaunchAtLoginPrompt, forKey: .hasCompletedLaunchAtLoginPrompt)
+        try values.encode(hapticsEnabled, forKey: .hapticsEnabled)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -245,6 +254,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case menuBarPreset
         case customMenuBarMetrics
         case hasCompletedLaunchAtLoginPrompt
+        case hapticsEnabled
     }
 }
 

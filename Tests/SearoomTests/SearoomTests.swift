@@ -337,6 +337,24 @@ final class SearoomTests: XCTestCase {
         }
     }
 
+    func testHapticsDefaultOnAndSurviveARoundTrip() throws {
+        XCTAssertTrue(AppSettings().hapticsEnabled)
+
+        var settings = AppSettings()
+        settings.hapticsEnabled = false
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertFalse(decoded.hapticsEnabled, "the choice must persist")
+    }
+
+    func testSettingsWrittenBeforeTheHapticsToggleKeepFeedbackOn() throws {
+        // An archive from a build without the key should not silently lose the
+        // feedback it already had.
+        let legacy = Data("{\"sampleInterval\":2,\"historyMinutes\":30}".utf8)
+        let settings = try JSONDecoder().decode(AppSettings.self, from: legacy)
+        XCTAssertTrue(settings.hapticsEnabled)
+    }
+
     func testSampleRateOffersEveryWholeSecondFromOneToTen() {
         let values = AppSettings.supportedSampleIntervals
         XCTAssertEqual(values.count, 10)

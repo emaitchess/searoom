@@ -21,6 +21,14 @@ final class DashboardView: NSView {
     /// The slot a dragged card would drop into when feedback was last given,
     /// so one tap is felt per slot crossed rather than per drag event.
     private var lastHapticInsertion: Int?
+    /// When the chart last tapped while scrubbing, on the monotonic clock.
+    private var lastHoverHapticTime: TimeInterval = 0
+    /// Floor between hover taps. The snapped sample changes about once per
+    /// pixel column, so an unthrottled sweep would fire at the mouse-moved
+    /// rate, 60 to 120 times a second, which reads as a buzz rather than a
+    /// series of detents. At 25 a second a deliberate hover still ticks per
+    /// sample and a fast sweep stays coarse.
+    private static let hoverHapticInterval: TimeInterval = 0.04
     private var livePresentation: LivePresentation?
     private var cachedLayout: DashboardLayout?
     private var cachedLayoutWidth: CGFloat = 0
@@ -389,7 +397,7 @@ final class DashboardView: NSView {
         // tap and not fifty.
         if insertion != lastHapticInsertion {
             lastHapticInsertion = insertion
-            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .drawCompleted)
+            Haptics.tap(.alignment, enabled: model.settings.hapticsEnabled)
         }
         // Lets a drag reach a section scrolled out of view. The clip view still
         // refuses horizontal movement, so this cannot drift the x origin.
@@ -462,6 +470,16 @@ final class DashboardView: NSView {
             NSCursor.crosshair.set()
             guard nextState != hoverState else { return }
             hoverState = nextState
+
+            // The readout snaps to a real retained sample rather than
+            // interpolating, so crossing into the next one is a detent and
+            // .alignment is the pattern for it.
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - lastHoverHapticTime >= Self.hoverHapticInterval {
+                lastHoverHapticTime = now
+                Haptics.tap(.alignment, enabled: model.settings.hapticsEnabled)
+            }
+
             updateHoverOverlays()
             return
         }

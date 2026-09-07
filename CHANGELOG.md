@@ -9,7 +9,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Trackpad haptic feedback when the sample rate changes, at each trend-window
-  slider stop, and each time a dragged dashboard card would land in a new slot. Both fire on the change
+  slider stop, while scrubbing a trend chart as the cursor crosses into the
+  next retained sample, and each time a dragged dashboard card would land in a
+  new slot. Chart scrubbing is floored at 25 taps a second: the snapped sample
+  changes about once per pixel column, so an unthrottled sweep would fire at
+  the mouse-moved rate and read as a buzz rather than a series of detents.
+- A Trackpad feedback checkbox in Settings turns all of it off. On by default,
+  and settings written before the toggle existed keep the feedback they already
+  had. Every haptic in the app routes through one gate, so a new detent cannot
+  ship ignoring the preference. Both fire on the change
   rather than per event, so a slow gesture gives one tap per detent crossed.
   `NSHapticFeedbackManager` is part of AppKit, so this adds no dependency and
   no measurable size, and it is a no-op on hardware without a Force Touch
