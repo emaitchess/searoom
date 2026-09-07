@@ -199,7 +199,13 @@ most once per minute, to:
 ~/Library/Application Support/Searoom/history.plist
 ```
 
-The selected trend window bounds in-memory and on-disk history.
+The selected trend window runs from 15 minutes to 24 hours and bounds
+in-memory and on-disk history. Beyond about three hours of samples the window
+keeps its full span and retains every nth sample instead of every one, so a
+24 hour window costs no more memory or disk than the longest window did before
+it existed. The graphs downsample to their own pixel width before drawing, so
+this is not visible on screen. Live readings are never thinned; only what is
+retained for the trend graphs is.
 Settings includes a confirmed Reset Trend History action that removes these
 samples without changing preferences, shortcuts or launch-at-login state.
 

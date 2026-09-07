@@ -16,6 +16,21 @@ final class AppModel {
     private let defaultsKey = "Searoom.Settings.v1"
     private var lastPersistenceDate = Date.distantPast
     private var hasResetHistorySinceLaunch = false
+    private var samplesSinceStored = 0
+
+    /// The most samples history will ever hold, whatever the window.
+    ///
+    /// This is the count a three hour window at a one second interval already
+    /// produces, which was the longest window offered before the trend slider
+    /// reached 24 hours. Holding the ceiling there means the longest window
+    /// costs no more memory, no more disk, and no more time to scan than the
+    /// longest window cost before, so no existing configuration got worse.
+    ///
+    /// Longer windows keep their full wall-clock span and store every nth
+    /// sample instead. Nothing is lost on screen: the graphs downsample to
+    /// their own pixel width, under 400 points, before drawing. Storing 86,400
+    /// samples for a 24 hour window would be 33 MB rewritten to disk every
+    /// minute to render fewer than 400 of them.
 
     init() {
         settings = Self.loadSettings(key: defaultsKey)
@@ -30,13 +45,21 @@ final class AppModel {
     }
 
     func consume(_ sample: SystemSample) {
+        // The live reading always updates. Only what is retained for the trend
+        // graphs is thinned, so the menu bar and dashboard numbers still move
+        // at the sampling interval however long the window is.
         currentSample = sample
-        history.append(sample, maximumCount: maximumHistoryCount)
-        pruneHistory()
 
-        if Date.now.timeIntervalSince(lastPersistenceDate) >= 60 {
-            lastPersistenceDate = .now
-            persistence.save(history.snapshot())
+        samplesSinceStored += 1
+        if samplesSinceStored >= historyStride {
+            samplesSinceStored = 0
+            history.append(sample, maximumCount: maximumHistoryCount)
+            pruneHistory()
+
+            if Date.now.timeIntervalSince(lastPersistenceDate) >= 60 {
+                lastPersistenceDate = .now
+                persistence.save(history.snapshot())
+            }
         }
         NotificationCenter.default.post(name: .searoomSampleUpdated, object: self)
     }
@@ -47,6 +70,7 @@ final class AppModel {
         if let data = try? JSONEncoder().encode(settings) {
             UserDefaults.standard.set(data, forKey: defaultsKey)
         }
+        samplesSinceStored = 0
         pruneHistory()
         NotificationCenter.default.post(name: .searoomSettingsUpdated, object: self)
         NotificationCenter.default.post(name: .searoomSampleUpdated, object: self)
@@ -87,13 +111,28 @@ final class AppModel {
         history.trim(to: maximumHistoryCount)
     }
 
+    /// Samples the current window would hold if every one were kept.
+    private var uncappedHistoryCount: Double {
+        Double(settings.historyMinutes * 60) / max(1, settings.sampleInterval)
+    }
+
+    /// Store every nth sample, so a long window spans its full duration without
+    /// its sample count growing with it. 1 for every window short enough to fit
+    /// the budget, which is all of them at the sample rates offered up to three
+    /// hours.
+    private var historyStride: Int {
+        max(1, Int((uncappedHistoryCount / Double(Self.maximumStoredSamples)).rounded(.up)))
+    }
+
     // A hard cap prevents corrupt settings or a clock jump from growing memory.
     private var maximumHistoryCount: Int {
-        max(
-            120,
-            Int(Double(settings.historyMinutes * 60) / max(1, settings.sampleInterval)) + 2
-        )
+        min(Self.maximumStoredSamples + 2, max(120, Int(uncappedHistoryCount) + 2))
     }
+
+    /// nonisolated because it is an immutable bound, not state: the tests and
+    /// anything reasoning about retention need it without hopping to the main
+    /// actor.
+    nonisolated static let maximumStoredSamples = 10_800
 
     private static func loadSettings(key: String) -> AppSettings {
         guard let data = UserDefaults.standard.data(forKey: key),

@@ -21,7 +21,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     )
     private var menuBarMetrics: [MenuBarMetric] = MenuBarMetric.defaults
     private let intervalPopUp = NSPopUpButton()
-    private let historyPopUp = NSPopUpButton()
+    private let historySlider = NSSlider()
+    private let historyValueLabel = NSTextField(labelWithString: "")
     private let shortcutRecorder = ShortcutRecorderControl()
     private let shortcutClearButton = NSButton(title: "Clear", target: nil, action: nil)
     private let shortcutError = NSTextField(labelWithString: "")
@@ -141,7 +142,20 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         metricControls.toolTip =
             "Choose up to \(MenuBarMetric.maximumCount) metrics. With none chosen the menu bar shows only the Searoom mark."
         intervalPopUp.addItems(withTitles: ["1 second", "2 seconds", "5 seconds", "10 seconds"])
-        historyPopUp.addItems(withTitles: ["15 minutes", "30 minutes", "1 hour", "3 hours"])
+        // A slider rather than a menu: 26 stops read as a range, and a menu that
+        // long is worse to scan than a track you can drag. Tick-only values keep
+        // every position a real setting instead of an interpolated one.
+        historySlider.sliderType = .linear
+        historySlider.minValue = 0
+        historySlider.maxValue = Double(AppSettings.supportedHistoryMinutes.count - 1)
+        historySlider.numberOfTickMarks = AppSettings.supportedHistoryMinutes.count
+        historySlider.allowsTickMarkValuesOnly = true
+        historySlider.isContinuous = true
+        historySlider.controlSize = .small
+        historySlider.setAccessibilityLabel("Trend window")
+        historyValueLabel.font = SearoomFont.metric(11)
+        historyValueLabel.textColor = .secondaryLabelColor
+        historyValueLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         shortcutRecorder.onChange = { [weak self] shortcut in
             self?.changeShortcut(shortcut) ?? false
         }
@@ -168,8 +182,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
         intervalPopUp.target = self
         intervalPopUp.action = #selector(intervalChanged)
-        historyPopUp.target = self
-        historyPopUp.action = #selector(historyChanged)
+        historySlider.target = self
+        historySlider.action = #selector(historyChanged)
         launchButton.target = self
         launchButton.action = #selector(launchChanged)
         resetHistoryButton.bezelStyle = .rounded
@@ -225,12 +239,20 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         orderGroup.spacing = 6
         orderGroup.toolTip = "Cards can also be dragged directly on the dashboard."
 
+        // The label sits beside the track rather than under it, so the row keeps
+        // the same height as the other settings rows.
+        let historyGroup = NSStackView(views: [historySlider, historyValueLabel])
+        historyGroup.orientation = .horizontal
+        historyGroup.spacing = 10
+        historyGroup.alignment = .centerY
+        historySlider.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
         let grid = NSGridView(views: [
             [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), metricControls],
             [makeLabel("LAYOUT", size: 10, color: .secondaryLabelColor), layoutControl],
             [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
             [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalPopUp],
-            [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyPopUp],
+            [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyGroup],
             [makeLabel("CARD ORDER", size: 10, color: .secondaryLabelColor), orderGroup]
         ])
         grid.rowSpacing = 14
@@ -331,7 +353,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let intervals = AppSettings.supportedSampleIntervals
         intervalPopUp.selectItem(at: intervals.firstIndex(of: model.settings.sampleInterval) ?? 1)
         let historyValues = AppSettings.supportedHistoryMinutes
-        historyPopUp.selectItem(at: historyValues.firstIndex(of: model.settings.historyMinutes) ?? 1)
+        let historyIndex = historyValues.firstIndex(of: model.settings.historyMinutes) ?? 1
+        historySlider.integerValue = historyIndex
+        updateHistoryLabel(minutes: historyValues[historyIndex])
         shortcutRecorder.shortcut = model.settings.globalShortcut
         shortcutClearButton.isEnabled = model.settings.globalShortcut != nil
         launchButton.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -472,8 +496,20 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
     @objc private func historyChanged() {
         let values = AppSettings.supportedHistoryMinutes
-        let value = values[max(0, historyPopUp.indexOfSelectedItem)]
+        let value = values[min(values.count - 1, max(0, historySlider.integerValue))]
+        // The label tracks the drag; the setting is written on every tick the
+        // slider lands on, which is cheap because a window change only reprunes
+        // history rather than resampling anything.
+        updateHistoryLabel(minutes: value)
+        guard value != model.settings.historyMinutes else { return }
         model.updateSettings { $0.historyMinutes = value }
+    }
+
+    private func updateHistoryLabel(minutes: Int) {
+        historyValueLabel.stringValue = AppSettings.historyWindowTitle(minutes: minutes)
+        historySlider.setAccessibilityValueDescription(
+            AppSettings.historyWindowTitle(minutes: minutes)
+        )
     }
 
     @objc private func launchChanged() {

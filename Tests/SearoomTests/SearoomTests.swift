@@ -322,6 +322,63 @@ final class SearoomTests: XCTestCase {
         XCTAssertEqual(fresh.menuBarMetrics, MenuBarMetric.defaults)
     }
 
+    func testTrendWindowOffersFifteenThirtyThenEveryHourToTwentyFour() {
+        let values = AppSettings.supportedHistoryMinutes
+        XCTAssertEqual(values.count, 26)
+        XCTAssertEqual(values.first, 15)
+        XCTAssertEqual(values.last, 24 * 60)
+        XCTAssertEqual(values, values.sorted(), "the slider indexes this array by position")
+        XCTAssertEqual(Set(values).count, values.count, "a repeated stop would be a dead position")
+
+        // Every window the previous four-item menu offered still exists, so a
+        // stored setting migrates without a special case.
+        for legacy in [15, 30, 60, 180] {
+            XCTAssertTrue(values.contains(legacy), "\(legacy) minutes must survive migration")
+        }
+    }
+
+    func testTrendWindowTitlesReadAsDurations() {
+        XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 15), "15 minutes")
+        XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 30), "30 minutes")
+        XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 60), "1 hour")
+        XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 120), "2 hours")
+        XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 1440), "24 hours")
+        XCTAssertEqual(AppSettings.historyWindowTitle(minutes: 90), "1 hour 30 minutes")
+    }
+
+    func testEveryTrendWindowStopHasATitle() {
+        for minutes in AppSettings.supportedHistoryMinutes {
+            let title = AppSettings.historyWindowTitle(minutes: minutes)
+            XCTAssertFalse(title.isEmpty, "\(minutes) minutes rendered no title")
+            XCTAssertFalse(title.hasPrefix("0 "), "\(minutes) minutes rendered as \(title)")
+        }
+    }
+
+    func testLongTrendWindowsCostNoMoreThanTheOldLongestWindow() {
+        // The budget is the sample count a three hour window at one second
+        // already produced, which was the longest window offered before the
+        // slider reached 24 hours. Nothing may exceed it.
+        let budget = Double(AppModel.maximumStoredSamples)
+        XCTAssertEqual(AppModel.maximumStoredSamples, 180 * 60)
+
+        for minutes in AppSettings.supportedHistoryMinutes {
+            for interval in AppSettings.supportedSampleIntervals {
+                let uncapped = Double(minutes * 60) / max(1, interval)
+                let stride = max(1, Int((uncapped / budget).rounded(.up)))
+                let stored = uncapped / Double(stride)
+                XCTAssertLessThanOrEqual(
+                    stored, budget,
+                    "\(minutes)m at \(interval)s would store \(Int(stored)) samples"
+                )
+                // Windows that already fit must keep every sample, so no
+                // configuration available before this change got coarser.
+                if uncapped <= budget {
+                    XCTAssertEqual(stride, 1, "\(minutes)m at \(interval)s should not thin")
+                }
+            }
+        }
+    }
+
     func testInvalidSettingsFallBackToBoundedDefaults() throws {
         let data = Data("{\"sampleInterval\":0,\"historyMinutes\":999999}".utf8)
         let settings = try JSONDecoder().decode(AppSettings.self, from: data)

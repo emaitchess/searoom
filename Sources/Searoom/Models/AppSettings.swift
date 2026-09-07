@@ -120,7 +120,24 @@ enum MenuBarLayout: String, CaseIterable, Codable, Sendable {
 
 struct AppSettings: Codable, Equatable, Sendable {
     static let supportedSampleIntervals: [TimeInterval] = [1, 2, 5, 10]
-    static let supportedHistoryMinutes = [15, 30, 60, 180]
+    /// Trend window stops, in minutes: 15 and 30, then every hour to 24.
+    ///
+    /// Settings presents these as a slider, so the array order is the slider
+    /// position and the values must stay sorted ascending. Every value the
+    /// previous four-item list offered (15, 30, 60, 180) is still here, so
+    /// stored settings migrate without a special case.
+    static let supportedHistoryMinutes: [Int] = [15, 30] + (1...24).map { $0 * 60 }
+
+    /// "45 minutes", "1 hour", "3 hours". Used by the Settings slider label and
+    /// anywhere else a window needs naming, so the two cannot word it
+    /// differently.
+    static func historyWindowTitle(minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes) minutes" }
+        let hours = minutes / 60
+        let unit = hours == 1 ? "hour" : "hours"
+        guard minutes % 60 != 0 else { return "\(hours) \(unit)" }
+        return "\(hours) \(unit) \(minutes % 60) minutes"
+    }
 
     var sampleInterval: TimeInterval
     var historyMinutes: Int

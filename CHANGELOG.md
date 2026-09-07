@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The trend window now runs from 15 minutes to 24 hours. It offers 15 and 30
+  minutes then every hour to 24, and Settings presents it as a slider that
+  snaps to those stops rather than a four-item menu. The three windows that
+  existed before (15 minutes, 30 minutes, 1 hour, 3 hours) are all still
+  offered, so a stored preference carries over unchanged.
+- Windows longer than three hours keep their full span and retain every nth
+  sample rather than every one. A 24 hour window therefore costs no more
+  memory, disk, or scan time than the three hour window already did. Nothing
+  changes on screen, because the dashboard already downsamples every series to
+  its pixel width before drawing, and live readings are never thinned. Storing
+  every sample for a 24 hour window would have meant about 33 MB rewritten to
+  disk every minute to draw fewer than 400 points.
+
 ## [0.3.0] - 2026-09-03
 
 ### Added
