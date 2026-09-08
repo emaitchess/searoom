@@ -6,51 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-08
+
 ### Added
 
 - Trackpad haptic feedback when the sample rate changes, at each trend-window
   slider stop, while scrubbing a trend chart as the cursor crosses into the
   next retained sample, and each time a dragged dashboard card would land in a
-  new slot. Chart scrubbing is floored at 25 taps a second: the snapped sample
-  changes about once per pixel column, so an unthrottled sweep would fire at
-  the mouse-moved rate and read as a buzz rather than a series of detents.
+  new slot. The slider and card-drag taps fire on the change rather than per
+  event, so a slow gesture gives one tap per detent crossed rather than fifty.
+  Chart scrubbing is floored at 25 taps a second: the snapped sample changes
+  about once per pixel column, so an unthrottled sweep would fire at the
+  mouse-moved rate and read as a buzz rather than a series of detents.
 - A Trackpad feedback checkbox in Settings turns all of it off. On by default,
   and settings written before the toggle existed keep the feedback they already
   had. Every haptic in the app routes through one gate, so a new detent cannot
-  ship ignoring the preference. Both fire on the change
-  rather than per event, so a slow gesture gives one tap per detent crossed.
-  `NSHapticFeedbackManager` is part of AppKit, so this adds no dependency and
-  no measurable size, and it is a no-op on hardware without a Force Touch
-  trackpad.
+  ship ignoring the preference. `NSHapticFeedbackManager` is part of AppKit, so
+  this adds no dependency and no measurable size, and it is a no-op on hardware
+  without a Force Touch trackpad.
 
 ### Changed
 
-- Sample rate offers every whole second from 1 to 10, on a slider matching the
-  trend window rather than a four-item pop-up. All four rates offered before
-  are still stops, so a stored setting carries over. The value is committed
-  when the drag ends, not on each tick: changing it restarts the sampling
-  timer, so writing per tick would tear the timer down and rebuild it up to
-  nine times for one gesture.
-- Superseded within the same unreleased block: sample rate was briefly four
-  radio buttons. Four mutually
-  exclusive choices with descriptive labels is what radio buttons are for, and
-  the pop-up hid three of the four behind a click while stretching to the full
-  column width to show one short value. Laid out two by two: four across
-  measured 323pt against the 305pt the column has, and four stacked would have
-  cost about 84pt of height in a window that cannot scroll.
-- Removed the blank line reserved under the global shortcut row. The error
-  label was always present and empty, and an empty label still has intrinsic
-  height, so it held roughly 16pt whether or not there was an error. It is now
-  hidden when there is no message, which drops it from the layout entirely.
 - The trend window now runs from 15 minutes to 24 hours. It offers 15 and 30
   minutes then every hour to 24, and Settings presents it as a slider that
-  snaps to those stops rather than a four-item menu. The three windows that
+  snaps to those stops rather than a four-item menu. The four windows that
   existed before (15 minutes, 30 minutes, 1 hour, 3 hours) are all still
   offered, so a stored preference carries over unchanged.
-- The trend-window value beside the slider is pinned to the width of the widest
-  value it can show. The strings range from 40.8pt for "1 hour" to 68.0pt for
-  "15 minutes", so without this the label resized as the value changed and
-  dragged the slider sideways under the thumb.
 - Windows longer than three hours keep their full span and retain every nth
   sample rather than every one. A 24 hour window therefore costs no more
   memory, disk, or scan time than the three hour window already did. Nothing
@@ -58,6 +39,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its pixel width before drawing, and live readings are never thinned. Storing
   every sample for a 24 hour window would have meant about 33 MB rewritten to
   disk every minute to draw fewer than 400 points.
+- Sample rate offers every whole second from 1 to 10, on a slider matching the
+  trend window rather than a four-item pop-up. All four rates offered before
+  are still stops, so a stored setting carries over. The value is committed
+  when the drag ends, not on each tick: changing it restarts the sampling
+  timer, so writing per tick would tear the timer down and rebuild it up to
+  nine times for one gesture.
+- The value beside each slider is pinned to the width of the widest string it
+  can show. The trend-window strings range from 40.8pt for "1 hour" to 68.0pt
+  for "15 minutes", so without this the label resized as the value changed and
+  dragged the slider sideways under the thumb.
+- Removed the blank line reserved under the global shortcut row. The error
+  label was always present and empty, and an empty label still has intrinsic
+  height, so it held roughly 16pt whether or not there was an error. It is now
+  hidden when there is no message, which drops it from the layout entirely.
+
+### Fixed
+
+- The card order list's buttons are titled `Move Card Up` and `Move Card Down`.
+  Two buttons read `Move Up` and two read `Move Down` in the same window, one
+  pair per list, so the two lists were distinguishable only by which table
+  happened to be selected.
+- The sample rate control carries an accessibility label. VoiceOver announced
+  the selected value with no indication of what it set, because the SAMPLE RATE
+  text beside it is a separate label with no programmatic association.
+- The Settings footer is constrained to sit at least 16pt below the disclosure
+  note. The note is the only variable-height element in a fixed 720pt window
+  that cannot scroll, and nothing held it off the footer; they did not overlap,
+  but the failure would have been silent.
 
 ## [0.3.0] - 2026-09-03
 
@@ -147,7 +156,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   global shortcut, and launch at login. No analytics, no accounts, no
   background network activity.
 
-[Unreleased]: https://github.com/emaitchess/searoom/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/emaitchess/searoom/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/emaitchess/searoom/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/emaitchess/searoom/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/emaitchess/searoom/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/emaitchess/searoom/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/emaitchess/searoom/releases/tag/v0.1.0
