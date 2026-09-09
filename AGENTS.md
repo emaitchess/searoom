@@ -26,7 +26,8 @@ Preserve these non-negotiable properties:
 | Path | Responsibility |
 | --- | --- |
 | `Package.swift` | SwiftPM executable, C sensor target, resources, frameworks, and test target |
-| `Sources/Searoom/App` | Process entry point, AppKit lifecycle, status item, app menu, global shortcut, CLI diagnostics |
+| `Sources/Searoom/App` | Process entry point, AppKit lifecycle, status item, app menu, global shortcut, and self-test |
+| `Sources/Searoom/CLI` | Command parser, runner, versioned telemetry DTOs, legacy dump projection, and rootless installer |
 | `Sources/Searoom/Metrics` | Stateful metric collectors and the single sampling engine |
 | `Sources/Searoom/Models` | Codable settings and sampled telemetry contracts |
 | `Sources/Searoom/Store` | Main-actor application state and bounded local persistence |
@@ -138,6 +139,7 @@ Rules that keep the CLI trustworthy:
 - `history` reads the shared `HistoryArchiveStore` synchronously. Missing history is an empty success; corrupt, unsupported, and oversized archives are `EX_DATAERR` diagnostics. The app keeps its fail-closed mapping to empty history.
 - Shared derivations live in `Models/TelemetryDerivedMetrics.swift` and `Models/SustainedPressure.swift`. Do not copy formulas into the CLI or into views; reuse the shared pure helpers so app and CLI cannot drift.
 - CLI tests live in `Tests/SearoomTests/CLIParserTests.swift`, `TelemetryOutputTests.swift`, `CLISamplingTests.swift`, `HistoryArchiveStoreTests.swift`, and `CLIInstallerTests.swift`. A parser, DTO, schema, or installer change lands with its tests.
+- The human metric catalog is rendered from the bundled `metrics.json` at runtime by `CLIRunner.catalogMarkdown`; there is no second Markdown file to keep in sync. Do not reintroduce a static mirror: a definitions change lands in the JSON alone.
 
 ## Adding or changing a metric
 
