@@ -4,6 +4,22 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `searoom watch` was killed by SIGINT and SIGTERM instead of finishing the
+  line in flight and returning 128 + signal. `CLIRunner.Environment` defaulted
+  its signal monitor to `NoSignals()`, the test double, so the real
+  `DispatchSignalMonitor` was never constructed outside the test suite and the
+  two signals kept their default disposition. Every signal test injects its own
+  monitor, which is why 133 passing tests said nothing about it. The default is
+  now the dispatch monitor, one test asserts the production default directly,
+  and `Scripts/check-watch-signal.py` runs in CI and in the release audit: it
+  reads the raw wait status, because a shell reports 130 both for a process
+  killed by SIGINT and for one that exits 130, and so cannot tell the
+  regression from correct behaviour.
+
 ## [0.5.1] - 2026-09-09
 
 ### Fixed

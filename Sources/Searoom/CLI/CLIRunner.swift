@@ -92,7 +92,7 @@ enum CLIRunner {
         init(
             stdout: Stdout = FileHandleStdout(),
             waiter: Waiter = ThreadWaiter(),
-            signals: SignalMonitor = NoSignals(),
+            signals: SignalMonitor = DispatchSignalMonitor(),
             collector: Sampling = SystemMetricsCollector(),
             version: CLIVersionInfo = .current(),
             now: @escaping () -> Date = Date.init,

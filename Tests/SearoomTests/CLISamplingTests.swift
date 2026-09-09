@@ -273,4 +273,27 @@ final class CLISamplingTests: XCTestCase {
         let limiting = TelemetryDerivedMetrics.limitingResources(in: sampleWith(level: .constrained))
         XCTAssertEqual(Set(limiting.map(\.resource)), ["cpu", "memory"])
     }
+
+    // MARK: - Production wiring
+
+    /// Every signal test injects a double, so the whole suite passed while the
+    /// shipping binary defaulted to the no-op monitor and `watch` was killed by
+    /// SIGINT instead of finishing its line and returning 128 + signal. Assert
+    /// the default the binary actually gets.
+    func testProductionEnvironmentInstallsTheRealSignalMonitor() {
+        let environment = CLIRunner.Environment()
+        XCTAssertTrue(
+            environment.signals is CLIRunner.DispatchSignalMonitor,
+            "watch's line-boundary guarantee needs the dispatch monitor, not \(type(of: environment.signals))"
+        )
+    }
+
+    /// SIG_IGN plus a dispatch source must survive installing twice, because
+    /// nothing stops a caller constructing two environments in one process.
+    func testInstallingTheSignalMonitorTwiceIsHarmless() {
+        let monitor = CLIRunner.DispatchSignalMonitor()
+        monitor.install()
+        monitor.install()
+        XCTAssertNil(monitor.interruptedSignal)
+    }
 }

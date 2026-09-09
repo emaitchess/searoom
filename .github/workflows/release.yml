@@ -99,6 +99,7 @@ jobs:
             echo "::error::the published CLI reports version $REPORTED through a symlink, expected ${TAG#v}"
             exit 1
           fi
+          python3 Scripts/check-watch-signal.py "$APP_CLI"
 
       - name: Bundled canonical resources match the published bytes
         run: |
