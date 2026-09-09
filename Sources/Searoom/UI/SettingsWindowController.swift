@@ -29,11 +29,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let shortcutError = NSTextField(labelWithString: "")
     private let launchButton = NSButton(checkboxWithTitle: "Launch Searoom at login", target: nil, action: nil)
     private let hapticsButton = NSButton(checkboxWithTitle: "Trackpad feedback", target: nil, action: nil)
-    private let cliToggle = NSButton(
-        checkboxWithTitle: "Enable the searoom command",
-        target: nil,
-        action: nil
-    )
+    private let cliToggle = NSSwitch()
     private let agentSkillButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let agentSkillStatusLabel = NSTextField(labelWithString: "")
     /// Held so the whole row can be hidden while the command is off: a skill
@@ -283,9 +279,18 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         cliStatusLabel.textColor = .secondaryLabelColor
         cliStatusLabel.lineBreakMode = .byTruncatingTail
         cliStatusLabel.setAccessibilityLabel("Terminal command status")
-        let cliGroup = NSStackView(views: [cliToggle, cliStatusLabel])
+        // The switch is pushed to the trailing edge so the row reads as a
+        // label and a toggle; the status line only appears when it has
+        // something to say, which keeps the ordinary on and off states quiet.
+        let cliSpacer = NSView()
+        cliSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        cliSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let cliRow = NSStackView(views: [cliSpacer, cliToggle])
+        cliRow.orientation = .horizontal
+        cliRow.alignment = .centerY
+        let cliGroup = NSStackView(views: [cliRow, cliStatusLabel])
         cliGroup.orientation = .vertical
-        cliGroup.alignment = .leading
+        cliGroup.alignment = .trailing
         cliGroup.spacing = 4
         cliGroup.toolTip = "Exposes the lowercase searoom command for terminal and agent use."
 
@@ -360,17 +365,24 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         historyGroup.alignment = .centerY
         historySlider.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let grid = NSGridView(views: [
+        // Rows are held in a named array so the agent-skills row is found by
+        // position rather than a literal index that a later insertion would
+        // silently move.
+        let gridRows: [[NSView]] = [
             [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), metricControls],
             [makeLabel("LAYOUT", size: 10, color: .secondaryLabelColor), layoutControl],
             [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
             [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalGroup],
             [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyGroup],
-            [makeLabel("TERMINAL COMMAND", size: 10, color: .secondaryLabelColor), cliGroup],
+            [makeLabel("SEAROOM CLI", size: 10, color: .secondaryLabelColor), cliGroup],
             [makeLabel("AGENT SKILLS", size: 10, color: .secondaryLabelColor), agentSkillGroup],
             [makeLabel("CARD ORDER", size: 10, color: .secondaryLabelColor), orderGroup]
-        ])
-        agentSkillRow = grid.row(at: 6)
+        ]
+        let agentSkillRowIndex = gridRows.firstIndex { row in
+            (row.first as? NSTextField)?.stringValue == "AGENT SKILLS"
+        }
+        let grid = NSGridView(views: gridRows)
+        if let agentSkillRowIndex { agentSkillRow = grid.row(at: agentSkillRowIndex) }
         grid.rowSpacing = 14
         grid.columnSpacing = 24
         grid.column(at: 0).xPlacement = .leading
@@ -560,18 +572,19 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         case .installed(let pathVisible):
             enabled = true
             cliToggle.isEnabled = true
+            // Nothing to report when it simply works.
             cliStatusLabel.stringValue = pathVisible
-                ? "On. ~/.local/bin/searoom is on your PATH."
-                : "On, but ~/.local/bin is not on your PATH yet, so the shell cannot find it."
+                ? ""
+                : "~/.local/bin is not on your PATH yet, so the shell cannot find it."
         case .managedExternally(let path):
             enabled = true
             // Homebrew's link is not ours to remove, so the toggle reports it
             // rather than offering an off switch that would not work.
             cliToggle.isEnabled = false
-            cliStatusLabel.stringValue = "On, provided by \(path). Manage it where it was installed."
+            cliStatusLabel.stringValue = "Provided by \(path)."
         case .absent:
             cliToggle.isEnabled = true
-            cliStatusLabel.stringValue = "Off. Turning it on creates ~/.local/bin/searoom."
+            cliStatusLabel.stringValue = ""
         case .conflict:
             cliToggle.isEnabled = false
             cliStatusLabel.stringValue = "~/.local/bin/searoom exists and is not Searoom's link."
@@ -580,6 +593,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             cliStatusLabel.stringValue = reason
         }
         cliToggle.state = enabled ? .on : .off
+        cliStatusLabel.isHidden = cliStatusLabel.stringValue.isEmpty
         syncAgentSkillControls(commandEnabled: enabled)
     }
 
@@ -641,12 +655,17 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         } else {
             CLIInstaller.removeBinDirectoryFromPath(homeDirectory: NSHomeDirectory())
         }
-        cliStatusLabel.stringValue = outcome.message
         // Records the decision, so first-launch linking does not put the
         // command back after someone has deliberately turned it off.
         model.updateSettings { $0.cliLinkDeclined = !turningOn }
         Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
         syncCLIControls()
+        // The resolved state is the honest report, so it wins; a failure that
+        // leaves no trace in that state would otherwise pass silently.
+        if outcome.exitCode != 0 {
+            cliStatusLabel.stringValue = outcome.message
+            cliStatusLabel.isHidden = false
+        }
     }
 
     @objc private func toggleAgentSkill(_ sender: NSMenuItem) {
