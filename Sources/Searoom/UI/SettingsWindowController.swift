@@ -27,8 +27,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let shortcutRecorder = ShortcutRecorderControl()
     private let shortcutClearButton = NSButton(title: "Clear", target: nil, action: nil)
     private let shortcutError = NSTextField(labelWithString: "")
-    private let launchButton = NSButton(checkboxWithTitle: "Launch Searoom at login", target: nil, action: nil)
-    private let hapticsButton = NSButton(checkboxWithTitle: "Trackpad feedback", target: nil, action: nil)
+    private let launchButton = NSSwitch()
+    private let hapticsButton = NSSwitch()
     private let cliToggle = NSSwitch()
     private let agentSkillButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let agentSkillStatusLabel = NSTextField(labelWithString: "")
@@ -112,7 +112,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         metricScroll.hasVerticalScroller = true
         metricScroll.borderType = .bezelBorder
         metricScroll.translatesAutoresizingMaskIntoConstraints = false
-        metricScroll.heightAnchor.constraint(equalToConstant: 96).isActive = true
+        metricScroll.heightAnchor.constraint(equalToConstant: 94).isActive = true
 
         addMetricPopUp.target = self
         addMetricPopUp.action = #selector(addMetric)
@@ -256,8 +256,12 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         historySlider.action = #selector(historyChanged)
         launchButton.target = self
         launchButton.action = #selector(launchChanged)
+        // The row label carries the name now, so the checkbox has no title of
+        // its own and needs one spelled out for VoiceOver.
+        launchButton.setAccessibilityLabel("Launch Searoom at login")
         hapticsButton.target = self
         hapticsButton.action = #selector(hapticsChanged)
+        hapticsButton.setAccessibilityLabel("Trackpad feedback")
         hapticsButton.setAccessibilityHelp(
             "Taps the trackpad at each slider stop, when the sample rate changes, "
                 + "while scrubbing a chart, and when a dragged card would move. "
@@ -333,7 +337,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         orderScroll.hasVerticalScroller = true
         orderScroll.borderType = .bezelBorder
         orderScroll.translatesAutoresizingMaskIntoConstraints = false
-        orderScroll.heightAnchor.constraint(equalToConstant: 112).isActive = true
+        orderScroll.heightAnchor.constraint(equalToConstant: 94).isActive = true
 
         for button in [moveUpButton, moveDownButton, resetOrderButton] {
             button.bezelStyle = .rounded
@@ -365,48 +369,77 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         historyGroup.alignment = .centerY
         historySlider.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        // Rows are held in a named array so the agent-skills row is found by
-        // position rather than a literal index that a later insertion would
-        // silently move.
-        let gridRows: [[NSView]] = [
-            [makeLabel("MENU BAR", size: 10, color: .secondaryLabelColor), metricControls],
-            [makeLabel("LAYOUT", size: 10, color: .secondaryLabelColor), layoutControl],
-            [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
-            [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalGroup],
-            [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyGroup],
-            [makeLabel("SEAROOM CLI", size: 10, color: .secondaryLabelColor), cliGroup],
-            [makeLabel("AGENT SKILLS", size: 10, color: .secondaryLabelColor), agentSkillGroup],
-            [makeLabel("CARD ORDER", size: 10, color: .secondaryLabelColor), orderGroup]
-        ]
-        let agentSkillRowIndex = gridRows.firstIndex { row in
-            (row.first as? NSTextField)?.stringValue == "AGENT SKILLS"
+        let maintenanceActions = NSStackView(views: [updatesButton, resetHistoryButton, NSView()])
+        maintenanceActions.orientation = .horizontal
+        maintenanceActions.alignment = .centerY
+        maintenanceActions.spacing = 8
+        if let filler = maintenanceActions.views.last {
+            filler.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            filler.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
+
+        // Settings are grouped by what they change rather than by the order
+        // they were built in: the two surfaces first, then what feeds them,
+        // then the command line, the app's own behaviour, and the actions.
+        // Section rows carry a marker view in the second column so the header
+        // can be found and merged after the grid exists.
+        let sections: [(String, [(String, NSView)])] = [
+            ("MENU BAR", [
+                ("Metrics", metricControls),
+                ("Layout", layoutControl),
+            ]),
+            ("DASHBOARD", [
+                ("Cards", orderGroup),
+            ]),
+            ("SAMPLING", [
+                ("Interval", intervalGroup),
+                ("Trend window", historyGroup),
+            ]),
+            ("SEAROOM CLI", [
+                ("Command", cliGroup),
+                (agentSkillRowLabel, agentSkillGroup),
+            ]),
+            ("GENERAL", [
+                ("Shortcut", shortcutGroup),
+                ("Launch at login", trailing(launchButton)),
+                ("Trackpad feedback", trailing(hapticsButton)),
+            ]),
+            ("MAINTENANCE", [
+                ("", maintenanceActions),
+            ]),
+        ]
+
+        var gridRows: [[NSView]] = []
+        var headerRowIndices: [Int] = []
+        var agentSkillRowIndex: Int?
+        for (title, rows) in sections {
+            headerRowIndices.append(gridRows.count)
+            gridRows.append([makeSectionHeader(title), NSGridCell.emptyContentView])
+            for (label, control) in rows {
+                if label == agentSkillRowLabel { agentSkillRowIndex = gridRows.count }
+                gridRows.append([makeLabel(label, size: 10, color: .secondaryLabelColor), control])
+            }
+        }
+
         let grid = NSGridView(views: gridRows)
+        // A header spans both columns, so the section name is not squeezed into
+        // the label column's width.
+        for index in headerRowIndices {
+            grid.mergeCells(
+                inHorizontalRange: NSRange(location: 0, length: 2),
+                verticalRange: NSRange(location: index, length: 1)
+            )
+            // Sections need air above them, but not before the first one.
+            if index > 0 { grid.row(at: index).topPadding = 10 }
+        }
         if let agentSkillRowIndex { agentSkillRow = grid.row(at: agentSkillRowIndex) }
-        grid.rowSpacing = 14
+        grid.rowSpacing = 8
         grid.columnSpacing = 24
         grid.column(at: 0).xPlacement = .leading
         grid.column(at: 1).xPlacement = .fill
         grid.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(grid)
 
-        let storageActions = NSStackView(views: [updatesButton, resetHistoryButton])
-        storageActions.orientation = .horizontal
-        storageActions.alignment = .centerY
-        storageActions.spacing = 8
-        let storageSpacer = NSView()
-        storageSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        storageSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let toggles = NSStackView(views: [launchButton, hapticsButton])
-        toggles.orientation = .vertical
-        toggles.alignment = .leading
-        toggles.spacing = 6
-        let storageControls = NSStackView(views: [toggles, storageSpacer, storageActions])
-        storageControls.orientation = .horizontal
-        storageControls.alignment = .centerY
-        storageControls.distribution = .fill
-        storageControls.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(storageControls)
 
         let noteWidth = (window.contentView?.bounds.width ?? 470) - 48
         let historyNote = makeHistoryNote(width: noteWidth)
@@ -459,12 +492,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             grid.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             grid.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
             grid.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 28),
-            storageControls.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-            storageControls.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            storageControls.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 20),
             historyNote.note.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             historyNote.note.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            historyNote.note.topAnchor.constraint(equalTo: storageControls.bottomAnchor, constant: 20),
+            historyNote.note.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 20),
             historyNote.note.heightAnchor.constraint(equalToConstant: historyNote.height),
             // The note is the only variable-height element and the window cannot
             // scroll, so tie it to the footer. Without this the two are free to
@@ -966,6 +996,31 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private func setShortcutError(_ message: String?) {
         shortcutError.stringValue = message ?? ""
         shortcutError.isHidden = message == nil
+    }
+
+    /// A section title. Heavier than a row label and in the primary colour,
+    /// so the eye can find the group boundaries without a rule or a box.
+    private static let agentSkillRowLabelValue = "Agent skills"
+    private var agentSkillRowLabel: String { Self.agentSkillRowLabelValue }
+
+    /// Pushes a control to the trailing edge of its grid cell, so the three
+    /// switches line up on one edge instead of drifting with their widths.
+    private func trailing(_ view: NSView) -> NSStackView {
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let stack = NSStackView(views: [spacer, view])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        return stack
+    }
+
+    private func makeSectionHeader(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = SearoomFont.metric(11)
+        label.textColor = .labelColor
+        label.setAccessibilityRole(.staticText)
+        return label
     }
 
     private func makeLabel(_ text: String, size: CGFloat, color: NSColor) -> NSTextField {

@@ -32,6 +32,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Searoom's to remove, so the toggle shows it as on and names where it came
   from instead of offering an off switch that would not work. Turning the
   command off is remembered, so the next launch does not put it back.
+- Settings are grouped by what they change, under `MENU BAR`, `DASHBOARD`,
+  `SAMPLING`, `SEAROOM CLI`, `GENERAL` and `MAINTENANCE`, rather than arriving
+  in the order the controls happened to be built. Launch at login, trackpad
+  feedback, Check for Updates and Reset Trend History move out of the strip
+  below the grid and into the sections they belong to, and the three toggles
+  are now switches on the trailing edge so they line up instead of drifting
+  with the width of their labels.
+
 - An `Agent skills` control installs the bundled Agent Skill into the folders
   coding agents read: Claude Code, Codex, Cursor and OpenCode, individually or
   all at once. Each agent is a checkable item, so the same menu removes what it
