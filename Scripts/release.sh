@@ -178,13 +178,17 @@ step "Print Tap and Website handoff checksums"
 # The bundled schema, metric catalog, and Agent Skill are canonical; the tap
 # and website repositories must mirror these bytes exactly. The human-readable
 # metric catalog is rendered from metrics.json by the packaged CLI, so the
-# website mirrors the generated output rather than a second file.
+# website mirrors the generated output rather than a second file. Resources
+# are located by name because SwiftPM's bundle layout differs by toolchain.
+bundle_resource() {
+    find "$APP_PATH/Contents/Resources/Searoom_Searoom.bundle" -name "$1" -type f | head -1
+}
 HANDOFF_DIR="$(mktemp -d)"
 "$APP_CLI" metrics > "$HANDOFF_DIR/metrics.md"
 shasum -a 256 \
-    "$APP_PATH/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/telemetry-v1.schema.json" \
-    "$APP_PATH/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/metrics.json" \
-    "$APP_PATH/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/SKILL.md" \
+    "$(bundle_resource telemetry-v1.schema.json)" \
+    "$(bundle_resource metrics.json)" \
+    "$(bundle_resource SKILL.md)" \
     "$HANDOFF_DIR/metrics.md"
 
 step "Notarize and staple"

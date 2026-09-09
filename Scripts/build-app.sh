@@ -43,10 +43,12 @@ if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
     exit 1
 fi
 cp -R "$RESOURCE_BUNDLE" "$CONTENTS_PATH/Resources/"
-for resource in "Searoom_Searoom.bundle/Contents/Resources/telemetry-v1.schema.json" \
-                "Searoom_Searoom.bundle/Contents/Resources/metrics.json" \
-                "Searoom_Searoom.bundle/Contents/Resources/SKILL.md"; do
-    if [[ ! -f "$CONTENTS_PATH/Resources/$resource" ]]; then
+# Locate resources by name rather than by path: SwiftPM's processed-bundle
+# layout differs across toolchains (newer ones flatten subdirectories, older
+# ones preserve Resources/CLI and Resources/Fonts), and the runtime lookups
+# already accept every layout.
+for resource in telemetry-v1.schema.json metrics.json SKILL.md; do
+    if ! find "$CONTENTS_PATH/Resources/Searoom_Searoom.bundle" -name "$resource" -type f | grep -q .; then
         echo "Required CLI resource missing from bundle: $resource" >&2
         exit 1
     fi

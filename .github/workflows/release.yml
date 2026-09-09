@@ -96,11 +96,14 @@ jobs:
         run: |
           # The website and tap must mirror these bytes; release.sh prints the
           # handoff checksums from the developer's build. Recompute them from
-          # what actually shipped and keep them visible in this log.
+          # what actually shipped and keep them visible in this log. Resources
+          # are located by name because SwiftPM's bundle layout differs by
+          # toolchain.
+          BUNDLE="unpacked/Searoom.app/Contents/Resources/Searoom_Searoom.bundle"
           shasum -a 256 \
-            unpacked/Searoom.app/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/telemetry-v1.schema.json \
-            unpacked/Searoom.app/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/metrics.json \
-            unpacked/Searoom.app/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/SKILL.md
+            "$(find "$BUNDLE" -name telemetry-v1.schema.json -type f | head -1)" \
+            "$(find "$BUNDLE" -name metrics.json -type f | head -1)" \
+            "$(find "$BUNDLE" -name SKILL.md -type f | head -1)"
 
       - name: Published checksums match the published bytes
         run: |
