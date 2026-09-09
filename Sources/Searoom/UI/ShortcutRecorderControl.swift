@@ -22,6 +22,13 @@ final class ShortcutRecorderControl: NSButton {
         target = self
         action = #selector(beginRecording)
         setAccessibilityLabel("Global shortcut")
+        // The recorder beeps without explanation when an ordinary key arrives
+        // without a modifier, so the requirement is disclosed here rather
+        // than left to be inferred from the sound.
+        setAccessibilityHelp(
+            "Click, then type a key while holding Command, Option, or Control. "
+                + "Escape cancels recording; Delete clears the shortcut."
+        )
         updateTitle()
     }
 

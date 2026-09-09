@@ -901,6 +901,26 @@ final class SearoomTests: XCTestCase {
         }
     }
 
+    func testUpdateOutcomeOffersANewerHttpsRelease() {
+        let link = "https://searoom.app/releases/0.2.0"
+        let manifest = UpdateManifest(version: "0.2.0", url: link)
+        XCTAssertEqual(
+            UpdateChecker.outcome(for: manifest, current: "0.1.0"),
+            .updateAvailable(version: "0.2.0", url: URL(string: link)!)
+        )
+    }
+
+    func testUpdateOutcomeRejectsALinkThatIsNotHttps() {
+        // The manifest is fetched data: a release link that is not a secure
+        // page is refused rather than handed to NSWorkspace to open.
+        for link in ["http://searoom.app/releases/9.9.9", "file:///tmp/searoom.dmg"] {
+            let manifest = UpdateManifest(version: "9.9.9", url: link)
+            guard case .failed = UpdateChecker.outcome(for: manifest, current: "0.1.0") else {
+                return XCTFail("a non-https link should not produce an update prompt")
+            }
+        }
+    }
+
     // Uppercase readings have no descenders, so a line box carries slack below
     // the baseline that nothing occupies. Centring the box leaves text high;
     // this centres the caps instead.

@@ -31,6 +31,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let cliToggle = NSSwitch()
     private let agentSkillButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let agentSkillStatusLabel = NSTextField(labelWithString: "")
+    /// The grid row that carries the agent-skills control, hidden while the
+    /// command is off so the control is only ever seen when it can work.
+    private weak var agentSkillGridRow: NSGridRow?
     private weak var pageScrollView: NSScrollView?
     private let cliStatusLabel = NSTextField(labelWithString: "")
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
@@ -50,6 +53,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private var lastHapticHistoryIndex = -1
     /// The same, for the sample-rate slider.
     private var lastHapticIntervalIndex = -1
+    /// Set while the update check is in flight, so the button cannot start a
+    /// second check and two completion modals cannot stack.
+    private var isCheckingForUpdates = false
 
     init(model: AppModel, shortcutManager: GlobalShortcutManager) {
         self.model = model
@@ -251,13 +257,25 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         shortcutControls.spacing = 8
         shortcutClearButton.heightAnchor.constraint(equalTo: shortcutRecorder.heightAnchor).isActive = true
         shortcutError.font = SearoomFont.system(10)
-        shortcutError.textColor = .systemRed
+        // The design's critical token rather than the system red, so the
+        // failure color belongs to the palette and follows the appearance.
+        // The provider resolves per appearance, which a plain theme lookup
+        // captured once would not.
+        shortcutError.textColor = NSColor(name: nil) { appearance in
+            SearoomTheme(appearance: appearance).critical
+        }
         // An empty label still has intrinsic height, so leaving it in the stack
         // reserved a blank line under every shortcut row whether or not there
         // was an error. NSStackView detaches hidden arranged subviews, so
         // hiding it removes the space rather than merely blanking it.
         shortcutError.isHidden = true
-        let shortcutGroup = NSStackView(views: [shortcutControls, shortcutError])
+        // The recorder beeps when an ordinary key arrives without a modifier;
+        // saying the requirement here is what turns the beep from "broken"
+        // into an instruction. Sized like the status lines beside it.
+        let shortcutHelp = NSTextField(labelWithString: "Ordinary keys need Command, Option, or Control.")
+        shortcutHelp.font = SearoomFont.system(10)
+        shortcutHelp.textColor = .secondaryLabelColor
+        let shortcutGroup = NSStackView(views: [shortcutControls, shortcutHelp, shortcutError])
         shortcutGroup.orientation = .vertical
         shortcutGroup.alignment = .width
         shortcutGroup.spacing = 3
@@ -343,8 +361,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         agentSkillGroup.orientation = .vertical
         agentSkillGroup.alignment = .leading
         agentSkillGroup.spacing = 4
-        // Fixed heights, because this row must not change size when the
-        // command is switched on or off; everything below it would move.
+        // Fixed heights, so the row does not change size as the summary
+        // text changes between absent, outdated, and installed states.
         NSLayoutConstraint.activate([
             agentSkillRowStack.widthAnchor.constraint(equalTo: agentSkillGroup.widthAnchor),
             agentSkillStatusLabel.widthAnchor.constraint(equalTo: agentSkillGroup.widthAnchor),
@@ -466,6 +484,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             // Sections need air above them, but not before the first one.
             if index > 0 { grid.row(at: index).topPadding = 10 }
         }
+        // The cell is the dependable way back to the row that carries the
+        // agent-skills control, whose visibility is driven from the state of
+        // the command above it rather than from a static index.
+        agentSkillGridRow = grid.cell(for: agentSkillGroup)?.row
         grid.rowSpacing = 8
         grid.columnSpacing = 18
         grid.column(at: 0).xPlacement = .leading
@@ -486,7 +508,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let version = UpdateChecker.currentVersion
         let license = makeLabel(
             "SEAROOM \(version) · OPEN SOURCE · MIT",
-            size: 8,
+            size: 10,
             color: .secondaryLabelColor
         )
         license.setAccessibilityLabel(
@@ -496,7 +518,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         root.addSubview(license)
 
         githubButton.isBordered = false
-        githubButton.font = SearoomFont.metric(8)
+        githubButton.font = SearoomFont.metric(10)
         githubButton.contentTintColor = .secondaryLabelColor
         githubButton.alignment = .right
         githubButton.target = self
@@ -508,7 +530,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         root.addSubview(githubButton)
 
         emaitchessButton.isBordered = false
-        emaitchessButton.font = SearoomFont.metric(8)
+        emaitchessButton.font = SearoomFont.metric(10)
         emaitchessButton.contentTintColor = .secondaryLabelColor
         emaitchessButton.alignment = .right
         emaitchessButton.target = self
@@ -640,48 +662,46 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             enabled = true
             cliToggle.isEnabled = true
             // Nothing to report when it simply works.
-            cliStatusLabel.stringValue = pathVisible
-                ? ""
-                : "~/.local/bin is not on your PATH yet, so the shell cannot find it."
+            setStatus(
+                cliStatusLabel,
+                message: pathVisible
+                    ? ""
+                    : "~/.local/bin is not on your PATH yet, so the shell cannot find it."
+            )
         case .managedExternally(let path):
             enabled = true
             // Homebrew's link is not ours to remove, so the toggle reports it
             // rather than offering an off switch that would not work.
             cliToggle.isEnabled = false
-            cliStatusLabel.stringValue = "Provided by \(path)."
+            setStatus(cliStatusLabel, message: "Provided by \(path).")
         case .absent:
             cliToggle.isEnabled = true
-            cliStatusLabel.stringValue = ""
+            setStatus(cliStatusLabel, message: "")
         case .conflict:
             cliToggle.isEnabled = false
-            cliStatusLabel.stringValue = "~/.local/bin/searoom exists and is not Searoom's link."
+            setStatus(
+                cliStatusLabel,
+                message: "~/.local/bin/searoom exists and is not Searoom's link."
+            )
         case .unstableLocation(let reason):
             cliToggle.isEnabled = false
-            cliStatusLabel.stringValue = reason
+            setStatus(cliStatusLabel, message: reason)
         }
         cliToggle.state = enabled ? .on : .off
         syncAgentSkillControls(commandEnabled: enabled)
     }
 
     /// The skill tells an agent to run `searoom`, so it is only offered while
-    /// the command exists. The row keeps its place either way: removing it
-    /// would move every row below it the moment the switch above was clicked,
-    /// and a settings page that rearranges itself under the control you just
-    /// touched is worse than a control that is visibly unavailable.
+    /// the command exists, and the entire row is hidden when it does not: a
+    /// permanently dimmed control for a feature that cannot work reads as
+    /// breakage rather than as a prerequisite.
     ///
     /// Each agent is a checkable item: on installs, off removes, and a dash
     /// means the file is there but is not this version.
     private func syncAgentSkillControls(commandEnabled: Bool) {
-        agentSkillButton.isEnabled = commandEnabled
-        agentSkillStatusLabel.textColor = commandEnabled ? .secondaryLabelColor : .tertiaryLabelColor
-        guard commandEnabled else {
-            agentSkillStatusLabel.stringValue = "Needs the searoom command."
-            let placeholder = NSMenu()
-            placeholder.addItem(withTitle: "Add skill to…", action: nil, keyEquivalent: "")
-            agentSkillButton.menu = placeholder
-            return
-        }
-        agentSkillStatusLabel.stringValue = agentSkillSummary()
+        agentSkillGridRow?.isHidden = !commandEnabled
+        guard commandEnabled else { return }
+        setStatus(agentSkillStatusLabel, message: agentSkillSummary())
         let menu = NSMenu()
         menu.autoenablesItems = false
         // A pull-down menu shows item zero as its title and never selects it.
@@ -753,6 +773,28 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         return names.dropLast().joined(separator: ", ") + " and " + last
     }
 
+    /// Writes one line into a truncating status label and mirrors it onto the
+    /// tooltip, so a message longer than its column is still readable in full
+    /// on hover rather than silently cut.
+    private func setStatus(_ label: NSTextField, message: String) {
+        label.stringValue = message
+        label.toolTip = message.isEmpty ? nil : message
+    }
+
+    /// Announces a status change to VoiceOver. These labels are small lines
+    /// beside the controls they describe, so a failure that only changed the
+    /// label would otherwise pass without a screen reader saying anything.
+    private func announce(_ message: String, from element: NSView) {
+        NSAccessibility.post(
+            element: element,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.high
+            ]
+        )
+    }
+
     @objc private func toggleCLICommand() {
         let turningOn = cliToggle.state == .on
         let outcome = turningOn ? CLIInstaller.install() : CLIInstaller.uninstall()
@@ -771,7 +813,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         // The resolved state is the honest report, so it wins; a failure that
         // leaves no trace in that state would otherwise pass silently.
         if outcome.exitCode != 0 {
-            cliStatusLabel.stringValue = outcome.message
+            setStatus(cliStatusLabel, message: outcome.message)
+            announce(outcome.message, from: cliStatusLabel)
         }
     }
 
@@ -790,7 +833,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
         syncCLIControls()
         if !outcome.installed, case .blocked = AgentSkillInstaller.state(for: target) {
-            agentSkillStatusLabel.stringValue = outcome.message
+            setStatus(agentSkillStatusLabel, message: outcome.message)
+            announce(outcome.message, from: agentSkillStatusLabel)
         }
     }
 
@@ -798,7 +842,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let outcome = AgentSkillInstaller.installAll()
         Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
         syncCLIControls()
-        if !outcome.installed { agentSkillStatusLabel.stringValue = outcome.message }
+        if !outcome.installed {
+            setStatus(agentSkillStatusLabel, message: outcome.message)
+            announce(outcome.message, from: agentSkillStatusLabel)
+        }
     }
 
     private func applyMenuBarMetrics(_ metrics: [MenuBarMetric], select row: Int?) {
@@ -951,10 +998,28 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
     /// Settings is where people look for this, so the check is reachable here as
     /// well as from the status-item menu. Both paths run only on activation.
+    ///
+    /// The request can take up to fifteen seconds, so the button names the
+    /// wait and stops taking clicks: silence that still looks clickable reads
+    /// as breakage, and a second click would stack a second completion modal.
     @objc private func checkForUpdates() {
-        UpdateChecker.check { outcome in
-            Task { @MainActor in UpdatePresenter.present(outcome) }
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        let previousTitle = updatesButton.title
+        updatesButton.title = "Checking…"
+        updatesButton.isEnabled = false
+        UpdateChecker.check { [weak self] outcome in
+            Task { @MainActor in
+                self?.restoreUpdatesButton(previousTitle: previousTitle)
+                UpdatePresenter.present(outcome)
+            }
         }
+    }
+
+    private func restoreUpdatesButton(previousTitle: String) {
+        isCheckingForUpdates = false
+        updatesButton.isEnabled = true
+        updatesButton.title = previousTitle
     }
 
     @objc private func resetHistory() {
@@ -1005,8 +1070,11 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         note.textContainer?.lineFragmentPadding = 0
         note.textContainerInset = .zero
 
+        // Body prose at the design's 13pt rather than a smaller line: the note
+        // is the page's one paragraph of explanation, and the measured height
+        // below lets the footer move with it.
         let baseAttributes: [NSAttributedString.Key: Any] = [
-            .font: SearoomFont.system(11),
+            .font: SearoomFont.system(13),
             .foregroundColor: NSColor.secondaryLabelColor
         ]
         let text = NSMutableAttributedString(
@@ -1016,7 +1084,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         text.append(NSAttributedString(
             string: "~/Library/Application Support/Searoom",
             attributes: [
-                .font: SearoomFont.system(11),
+                .font: SearoomFont.system(13),
                 .foregroundColor: NSColor.linkColor,
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
                 .link: historyDirectoryURL
@@ -1068,6 +1136,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private func setShortcutError(_ message: String?) {
         shortcutError.stringValue = message ?? ""
         shortcutError.isHidden = message == nil
+        guard let message else { return }
+        announce(message, from: shortcutError)
     }
 
     /// A section title. Heavier than a row label and in the primary colour,

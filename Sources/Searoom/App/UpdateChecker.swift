@@ -45,7 +45,11 @@ enum UpdateChecker {
     }
 
     static func outcome(for manifest: UpdateManifest, current: String) -> UpdateCheckOutcome {
-        guard let url = URL(string: manifest.url) else {
+        // The manifest is first-party, but it is still fetched data, so the
+        // link it carries is only offered when it names a secure page. A
+        // tampered manifest must not be able to hand NSWorkspace a file or
+        // custom-scheme URL to open.
+        guard let url = URL(string: manifest.url), url.scheme?.lowercased() == "https" else {
             return .failed(reason: "The update manifest contained an unusable link.")
         }
         guard isNewer(manifest.version, than: current) else {
