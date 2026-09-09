@@ -135,9 +135,22 @@ final class CLISamplingTests: XCTestCase {
         // Monotonic deadlines: waits accumulate from the chained deadline
         // (start + k*interval), never from "now", so collection duration
         // cannot introduce drift.
+        //
+        // The waits are what is left of each deadline once collection has
+        // taken its time, so they sit a hair under the nominal value by
+        // design. A millisecond of tolerance was measuring how loaded the
+        // machine was, and failed a release audit at 3.998865; what the test
+        // has to establish is that the second wait chains to the second
+        // deadline rather than restarting from now, and 4 against 2 is not a
+        // distinction a wide tolerance can blur.
         XCTAssertEqual(waiter.recordedWaits.count, 2)
-        XCTAssertEqual(waiter.recordedWaits[0], 2, accuracy: 0.001)
-        XCTAssertEqual(waiter.recordedWaits[1], 4, accuracy: 0.001)
+        XCTAssertEqual(waiter.recordedWaits[0], 2, accuracy: 0.05)
+        XCTAssertEqual(waiter.recordedWaits[1], 4, accuracy: 0.05)
+        XCTAssertGreaterThan(
+            waiter.recordedWaits[1],
+            3,
+            "a wait restarted from now would be one interval, not two"
+        )
         // Two complete JSON lines, one document each.
         XCTAssertEqual(stdout.lines.count, 2)
         for line in stdout.lines {
