@@ -4,6 +4,39 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Every `searoom` option answers to a one-letter shorthand as well as its long
+  name: `-i` is `--interval`, `-p` is `--pretty`, `-j` is `--json`, `-c` is
+  `--count`, `-n` is `--limit`, `-s` and `-u` are `--since` and `--until`, and
+  `-l` is `--jsonl`. Both spellings work everywhere, and validation, duplicate
+  detection, and every error message speak in the long form however the option
+  was typed. `searoom -h` and `searoom -v` work on their own, and `searoom
+  COMMAND -h` prints that command's reference and wins over validating the
+  rest of the line. The `help --json` catalog lists each shorthand beside its
+  long name, so automation can pick either form from the same document.
+
+### Fixed
+
+- Settings failures are no longer silent. A failed command toggle, a blocked
+  agent-skill install, and a rejected global shortcut are announced to
+  VoiceOver, and the two status lines mirror their full text onto tooltips, so
+  a message longer than its column is readable on hover instead of being cut.
+- Check for Updates now says what it is doing: the button is disabled and
+  retitled `Checking…` while the request runs, so the network's silence no
+  longer reads as breakage and a second click cannot stack a second dialog.
+- The release link shown by the update check is only offered when the update
+  manifest points at a secure `https` page, so a tampered manifest cannot hand
+  the browser a `file://` or custom-scheme address to open.
+- The shortcut recorder states its rule instead of only beeping: help text on
+  the control and a line beneath it say that ordinary keys need Command,
+  Option, or Control.
+- The shortcut error uses the design's critical color token rather than the
+  system red, the footer sits at the design's ten-point micro-label floor, and
+  the history note is set in the design's thirteen-point body size.
+
 ## [0.6.0] - 2026-09-09
 
 ### Added
