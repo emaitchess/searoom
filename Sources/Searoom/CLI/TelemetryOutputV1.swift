@@ -305,12 +305,29 @@ struct SampleDocumentV1: Encodable {
     }
 
     init(sample: TelemetrySampleV1, intervalSeconds: Int?, generatedAt: Date, version: CLIVersionInfo) {
+        self.init(
+            sample: sample,
+            source: .live(intervalSeconds: intervalSeconds),
+            generatedAt: generatedAt,
+            version: version
+        )
+    }
+
+    /// `history --jsonl` streams this same envelope, so its lines must say
+    /// they came out of the app's archive rather than claiming to be live
+    /// telemetry the CLI just collected.
+    init(
+        sample: TelemetrySampleV1,
+        source: TelemetrySourceV1,
+        generatedAt: Date,
+        version: CLIVersionInfo
+    ) {
         schemaURL = TelemetryOutputV1.schemaURL
         schemaVersion = TelemetryOutputV1.schemaVersion
         document = "sample"
         searoomVersion = version.searoomVersion
         self.generatedAt = generatedAt
-        source = TelemetrySourceV1.live(intervalSeconds: intervalSeconds)
+        self.source = source
         self.sample = sample
     }
 }

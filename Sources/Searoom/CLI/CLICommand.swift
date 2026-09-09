@@ -37,7 +37,7 @@ enum CLICommandKind: Equatable {
     case sample(interval: Int?)
     case watch(interval: Int?, count: Int?)
     case status(interval: Int?)
-    case history(filter: HistoryFilter)
+    case history(filter: HistoryFilter, jsonl: Bool)
     case capabilities
     case metrics(metric: String?)
     case schema
@@ -359,8 +359,13 @@ enum CLIParser {
             guard rest.isEmpty else {
                 throw CLIError(exitCode: .usage, message: "unexpected argument \(rest[0])")
             }
+            // `--jsonl` selects a different document shape and belongs to
+            // this command alone. It travelled as the shared `--json` flag
+            // once, which history does not even accept, so it was parsed,
+            // validated and then silently dropped.
             command = .history(
-                filter: HistoryFilter(since: since, until: until, limit: limit)
+                filter: HistoryFilter(since: since, until: until, limit: limit),
+                jsonl: jsonl
             )
         case "capabilities":
             try consumeOptions(allowed: ["--pretty"])

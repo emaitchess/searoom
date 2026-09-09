@@ -143,7 +143,7 @@ final class CLIParserTests: XCTestCase {
     // MARK: - Time bounds
 
     func testRelativeDurationsParse() throws {
-        guard case .history(let filter) = try command(of: parse("history", "--since", "30m")).0 else {
+        guard case .history(let filter, _) = try command(of: parse("history", "--since", "30m")).0 else {
             return XCTFail("expected history")
         }
         XCTAssertEqual(filter.since, .relative(seconds: 1_800, token: "30m"))
@@ -169,7 +169,7 @@ final class CLIParserTests: XCTestCase {
     }
 
     func testReversedTimeRangeIsRejectedAtResolution() {
-        guard case .history(let filter) = try! command(of: parse(
+        guard case .history(let filter, _) = try! command(of: parse(
             "history",
             "--since", "2026-01-02T00:00:00Z",
             "--until", "2026-01-01T00:00:00Z"
@@ -195,6 +195,31 @@ final class CLIParserTests: XCTestCase {
         // since (1_001) inclusive, until (1_004) exclusive, newest two retained.
         let offsets = matching.map { $0.timestamp.timeIntervalSinceReferenceDate }
         XCTAssertEqual(offsets, [1_002, 1_003])
+    }
+
+    // MARK: - history --jsonl
+
+    /// `--jsonl` was parsed, validated, and then dropped on the floor: the
+    /// runner read the shared `--json` flag instead, which history does not
+    /// accept, so the flag could never be true and `history --jsonl` silently
+    /// returned the envelope document.
+    func testHistoryCarriesJSONLinesThroughToTheCommand() throws {
+        guard case .history(_, let jsonl) = try command(of: parse("history", "--jsonl")).0 else {
+            return XCTFail("expected a history command")
+        }
+        XCTAssertTrue(jsonl)
+    }
+
+    func testHistoryWithoutTheFlagRequestsTheEnvelope() throws {
+        guard case .history(_, let jsonl) = try command(of: parse("history")).0 else {
+            return XCTFail("expected a history command")
+        }
+        XCTAssertFalse(jsonl)
+    }
+
+    func testHistoryRejectsTheSharedJSONFlag() {
+        let error = usage(parse("history", "--json"))
+        XCTAssertEqual(error.message, "option --json is not valid for this command")
     }
 }
 

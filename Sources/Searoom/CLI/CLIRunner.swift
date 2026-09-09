@@ -156,8 +156,8 @@ enum CLIRunner {
             return watch(interval: interval, count: count, environment: environment)
         case .status(let interval):
             return try status(interval: interval, pretty: pretty, environment: environment)
-        case .history(let filter):
-            return try history(filter: filter, jsonl: json, pretty: pretty, environment: environment)
+        case .history(let filter, let jsonl):
+            return try history(filter: filter, jsonl: jsonl, pretty: pretty, environment: environment)
         case .capabilities:
             return try capabilities(pretty: pretty, environment: environment)
         case .metrics(let metric):
@@ -555,8 +555,18 @@ enum CLIRunner {
         let projected = matching.map { TelemetrySampleV1.make(from: $0, observerKind: "searoom-app") }
 
         if jsonl {
+            // The same document `watch` streams, so one reader handles both and
+            // every line validates against the published schema. A bare sample
+            // would not: the schema's top level requires the envelope.
+            // There is no sampling interval to report for a persisted sample.
             for sample in projected {
-                let data = try TelemetryOutputV1.encode(sample, pretty: false)
+                let document = SampleDocumentV1(
+                    sample: sample,
+                    source: .persistedHistory,
+                    generatedAt: environment.now(),
+                    version: environment.version
+                )
+                let data = try TelemetryOutputV1.encode(document, pretty: false)
                 environment.stdout.write(data)
                 environment.stdout.write(Data("\n".utf8))
             }

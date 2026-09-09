@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `searoom history --jsonl` returned the single envelope document instead of
+  one sample per line. The parser accepted and validated the flag and then
+  dropped it: `ParsedCommand` carried only the shared `--json` and `--pretty`,
+  and the runner passed `--json` through in its place, which `history` does not
+  accept, so the value was always false. `--jsonl` now travels on the `history`
+  command itself, where a flag belonging to one command belongs.
+
+  The streaming lines are the same `sample` document `watch` emits, so one
+  reader handles both and every line validates against the published schema; a
+  bare sample did not, because the schema's top level requires the envelope.
+  Each line is labelled `source.kind: persisted`, `producer: searoom-app`,
+  rather than claiming to be live telemetry the CLI just collected.
 - `searoom watch` was killed by SIGINT and SIGTERM instead of finishing the
   line in flight and returning 128 + signal. `CLIRunner.Environment` defaulted
   its signal monitor to `NoSignals()`, the test double, so the real

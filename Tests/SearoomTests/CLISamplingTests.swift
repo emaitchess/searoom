@@ -274,6 +274,53 @@ final class CLISamplingTests: XCTestCase {
         XCTAssertEqual(Set(limiting.map(\.resource)), ["cpu", "memory"])
     }
 
+    // MARK: - history --jsonl
+
+    /// Each line must be the same envelope `watch` streams, so one reader
+    /// handles both and every line validates against the published schema.
+    func testHistoryJSONLinesEmitsOneSampleDocumentPerLine() throws {
+        let directory = workDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = directory.appendingPathComponent("history.plist")
+        XCTAssertTrue(HistoryArchiveStore(fileURL: archive).save([.placeholder, .placeholder]))
+
+        let stdout = CapturingStdout()
+        let environment = CLIRunner.Environment(
+            stdout: stdout,
+            waiter: FakeWaiter(),
+            signals: ScriptedSignals([]),
+            collector: SpyCollector(),
+            version: CLIVersionInfo(searoomVersion: "test", buildNumber: "0", macosFloor: "14.0"),
+            now: { Date(timeIntervalSinceReferenceDate: 1_000) },
+            archiveURL: archive
+        )
+
+        let exit = CLIRunner.run(
+            .history(filter: HistoryFilter(since: nil, until: nil, limit: nil), jsonl: true),
+            json: false,
+            pretty: false,
+            environment: environment
+        )
+        XCTAssertEqual(exit, 0)
+
+        let lines = stdout.text.split(separator: "\n", omittingEmptySubsequences: true)
+        XCTAssertEqual(lines.count, 2)
+        for line in lines {
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            )
+            XCTAssertEqual(object["document"] as? String, "sample")
+            XCTAssertEqual(object["$schema"] as? String, TelemetryOutputV1.schemaURL)
+            XCTAssertNotNil(object["sample"])
+            // These came out of the archive; they are not live CLI telemetry.
+            let source = object["source"] as? [String: Any]
+            XCTAssertEqual(source?["kind"] as? String, "persisted")
+            XCTAssertEqual(source?["producer"] as? String, "searoom-app")
+            XCTAssertNil(source?["requestedIntervalSeconds"] as? Int)
+        }
+    }
+
     // MARK: - Production wiring
 
     /// Every signal test injects a double, so the whole suite passed while the
