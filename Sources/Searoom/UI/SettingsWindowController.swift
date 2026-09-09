@@ -94,14 +94,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let backdrop = SettingsBackgroundView()
         window.contentView = backdrop
 
-        let scrollView = SearoomScrollView()
+        let scrollView = SearoomScrollView(frame: .zero)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.horizontalScrollElasticity = .none
         scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
         backdrop.addSubview(scrollView)
         pageScrollView = scrollView
 
@@ -121,17 +117,23 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         let metricColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metric"))
         metricTable.addTableColumn(metricColumn)
         metricTable.headerView = nil
-        metricTable.rowHeight = 18
+        metricTable.rowHeight = Self.listRowHeight
         metricTable.dataSource = self
         metricTable.delegate = self
         metricTable.allowsMultipleSelection = false
         metricTable.style = .plain
         metricTable.setAccessibilityLabel("Menu bar metrics, in order")
         metricScroll.documentView = metricTable
-        metricScroll.hasVerticalScroller = true
+        metricScroll.hasVerticalScroller = false
         metricScroll.borderType = .bezelBorder
         metricScroll.translatesAutoresizingMaskIntoConstraints = false
-        metricScroll.heightAnchor.constraint(equalToConstant: 94).isActive = true
+        // Tall enough for every row it can ever hold, so this list never
+        // scrolls. A scroller inside the scrolling page would swallow the
+        // wheel while the pointer was over it, which reads as the page
+        // sticking and then lurching once the pointer moves off the list.
+        metricScroll.heightAnchor.constraint(
+            equalToConstant: Self.listHeight(rows: MenuBarMetric.maximumCount)
+        ).isActive = true
 
         addMetricPopUp.target = self
         addMetricPopUp.action = #selector(addMetric)
@@ -349,7 +351,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         orderColumn.title = "Card"
         orderTable.addTableColumn(orderColumn)
         orderTable.headerView = nil
-        orderTable.rowHeight = 18
+        orderTable.rowHeight = Self.listRowHeight
         orderTable.dataSource = self
         orderTable.delegate = self
         orderTable.allowsMultipleSelection = false
@@ -357,10 +359,12 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         orderTable.style = .plain
         orderTable.setAccessibilityLabel("Dashboard card order")
         orderScroll.documentView = orderTable
-        orderScroll.hasVerticalScroller = true
+        orderScroll.hasVerticalScroller = false
         orderScroll.borderType = .bezelBorder
         orderScroll.translatesAutoresizingMaskIntoConstraints = false
-        orderScroll.heightAnchor.constraint(equalToConstant: 94).isActive = true
+        orderScroll.heightAnchor.constraint(
+            equalToConstant: Self.listHeight(rows: DashboardSection.allCases.count)
+        ).isActive = true
 
         for button in [moveUpButton, moveDownButton, resetOrderButton] {
             button.bezelStyle = .rounded
@@ -1040,6 +1044,13 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         return stack
     }
 
+    /// Height of a bordered list showing `rows` whole rows and nothing more.
+    private static func listHeight(rows: Int) -> CGFloat {
+        CGFloat(rows) * listRowHeight + 2
+    }
+
+    private static let listRowHeight: CGFloat = 18
+
     private func makeSectionHeader(_ text: String) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = SearoomFont.metric(11)
@@ -1079,6 +1090,8 @@ private final class SettingsBackgroundView: NSView {
     /// Flipped so the scroller's origin is the top of the page. An unflipped
     /// document view opens scrolled to the bottom.
     override var isFlipped: Bool { true }
+    /// It fills its bounds with paper, so the scroller can copy on scroll.
+    override var isOpaque: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         let theme = SearoomTheme(appearance: effectiveAppearance)

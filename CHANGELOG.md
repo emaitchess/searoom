@@ -49,6 +49,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   model to run `searoom` is useless without it.
 
 ### Fixed
+- Scrolling is smooth in both the dashboard and Settings. Three things were
+  wrong. The shared scroll view swallowed every wheel event whose vertical
+  delta rounded to zero, which included the phase changes that drive momentum,
+  so a flick stalled and stopped early; it also forced the clip view back to
+  x = 0 from inside `scrollWheel` and `layout`, fighting the scroll already in
+  progress. Both are gone: the horizontal lock belongs in the clip view's
+  `constrainBoundsRect`, which constrains a scroll before it happens rather
+  than undoing it afterwards. And both document views now declare themselves
+  opaque, so the scroller copies what is already drawn and repaints only the
+  strip a scroll exposes, instead of redrawing the whole visible page every
+  frame.
+- The metric and card lists in Settings no longer scroll on their own. They are
+  sized to hold every row they can ever have, because a scroll view inside the
+  scrolling settings page swallowed the wheel while the pointer was over it,
+  which read as the page sticking and then lurching.
+- Reopening Settings while it was closing could leave the app demoted back to
+  an accessory in the middle of showing the window, and the window would not
+  appear at all.
+
 - Settings is now the popover's size, 430 by 720, and scrolls. It had grown to
   928 points tall, which no longer fits a laptop screen, and a fixed window
   also means no control can resize it by appearing or disappearing. The page's

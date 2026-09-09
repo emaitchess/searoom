@@ -42,6 +42,9 @@ final class DashboardView: NSView {
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    /// `draw` fills the dirty rect with paper before anything else, so this is
+    /// true, and saying so is what lets the scroller copy rather than repaint.
+    override var isOpaque: Bool { true }
 
     init(model: AppModel) {
         self.model = model
@@ -1760,20 +1763,15 @@ final class DashboardViewController: NSViewController {
 
     override func loadView() {
         let scrollView = SearoomScrollView(frame: NSRect(origin: .zero, size: preferredContentSize))
-        let clipView = SearoomClipView()
+        // A popover draws its own chrome to the edge, so the scroller must not
+        // inset the content away from it.
         let zeroInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        clipView.automaticallyAdjustsContentInsets = false
-        clipView.contentInsets = zeroInsets
-        scrollView.contentView = clipView
+        scrollView.contentView.automaticallyAdjustsContentInsets = false
+        scrollView.contentView.contentInsets = zeroInsets
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = zeroInsets
         scrollView.scrollerInsets = zeroInsets
         scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.verticalScrollElasticity = .none
-        scrollView.horizontalScrollElasticity = .none
-        scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
         scrollView.documentView = dashboardView
         self.view = scrollView
     }
@@ -1787,28 +1785,47 @@ final class DashboardViewController: NSViewController {
 @MainActor
 /// Vertical-only scrolling, shared by the dashboard and the Settings window so
 /// both surfaces behave the same under a trackpad.
+///
+/// The horizontal lock is the clip view's `constrainBoundsRect`, which is the
+/// only place it belongs: it constrains the scroll before it happens. This
+/// class used to also swallow wheel events whose vertical delta rounded to
+/// zero and force a scroll back to x = 0 from inside `scrollWheel` and
+/// `layout`. Both were wrong. The dropped events include the phase changes
+/// that drive momentum, so flicks stuttered and stopped early, and scrolling
+/// the clip view from inside the event fights the scroll already in progress.
 final class SearoomScrollView: NSScrollView {
-    override func scrollWheel(with event: NSEvent) {
-        guard abs(event.scrollingDeltaY) > 0.001 else { return }
-        super.scrollWheel(with: event)
-        lockHorizontalPosition()
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
     }
 
-    override func layout() {
-        super.layout()
-        lockHorizontalPosition()
-    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func lockHorizontalPosition() {
-        let origin = contentView.bounds.origin
-        guard abs(origin.x) > 0.001 else { return }
-        contentView.scroll(to: NSPoint(x: 0, y: origin.y))
-        reflectScrolledClipView(contentView)
+    private func configure() {
+        contentView = SearoomClipView()
+        hasHorizontalScroller = false
+        // No rubber band at either end. The page stops where the content
+        // stops; the bounce reads as the window wobbling rather than as
+        // feedback. This is not what made scrolling feel stuck — that was the
+        // swallowed wheel events and the lists that trapped them.
+        verticalScrollElasticity = .none
+        horizontalScrollElasticity = .none
+        borderType = .noBorder
+        drawsBackground = false
+        // Both document views paint their whole bounds and declare themselves
+        // opaque, which lets AppKit blit what is already on screen and redraw
+        // only the strip a scroll exposes. A layer-backed clip view would be
+        // smooth too, but at the cost of a backing store the size of the whole
+        // scrolled document, which is not a trade this app should make.
+        contentView.copiesOnScroll = true
     }
 }
 
 @MainActor
-private final class SearoomClipView: NSClipView {
+/// Pins horizontal scrolling to zero before the scroll happens, rather than
+/// undoing it afterwards.
+final class SearoomClipView: NSClipView {
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var constrained = super.constrainBoundsRect(proposedBounds)
         constrained.origin.x = 0

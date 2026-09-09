@@ -212,8 +212,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
               closingWindow === settingsController?.window else { return }
         settingsController = nil
         // Back to a menu bar app. Deferred because the window is still closing,
-        // and changing policy underneath it drops the frame on screen.
-        DispatchQueue.main.async {
+        // and changing policy underneath it drops the frame on screen. The
+        // guard matters: reopening Settings before this runs would otherwise
+        // demote the app right after it was promoted, and the new window never
+        // appears.
+        DispatchQueue.main.async { [weak self] in
+            guard self?.settingsController == nil else { return }
             NSApp.setActivationPolicy(.accessory)
         }
     }
