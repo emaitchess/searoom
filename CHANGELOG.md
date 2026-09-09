@@ -53,11 +53,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bar. The shortcut is handled by the window itself, because an accessory app
   installs no menu bar and `NSApp.mainMenu` key equivalents are never matched:
   the Quit item's Command-Q has never fired either.
-- The menu-bar preview in Settings is now drawn by the same renderer the status
-  item uses, so switching between the stacked and inline layouts changes the
-  mockup instead of leaving the previous one above the control that just
-  changed. Stacked shows the real two-line image, inline the dot and the
-  attributed title, and both carry the tones the menu bar carries.
+- The menu-bar preview is gone from Settings. The stacked and inline layouts
+  have different natural sizes, so switching between them resized the window
+  and the whole page appeared to jump. The menu bar itself now updates the
+  moment the selection changes, which is a truer preview than a mockup of it.
 - Changing a menu-bar metric or the layout refreshes the status item
   immediately rather than at the next sample, which at a ten-second interval
   was long enough to read as the setting not having worked.

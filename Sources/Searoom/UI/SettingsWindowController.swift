@@ -12,12 +12,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let moveMetricUpButton = NSButton(title: "Move Up", target: nil, action: nil)
     private let moveMetricDownButton = NSButton(title: "Move Down", target: nil, action: nil)
     private let removeMetricButton = NSButton(title: "Remove", target: nil, action: nil)
-    private let metricPreview = NSTextField(labelWithString: "")
-    private let metricPreviewDot = NSImageView()
-    /// The stacked layout is one drawn image, so the preview shows the
-    /// image itself rather than a text stand-in for it.
-    private let metricPreviewImage = NSImageView()
-    private let metricPreviewGroup = NSStackView()
     private let layoutControl = NSSegmentedControl(
         labels: MenuBarLayout.allCases.map(\.title),
         trackingMode: .selectOne,
@@ -143,30 +137,13 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         layoutControl.toolTip =
             "Stacked puts each value under its label in about half the width. Inline keeps one larger line."
 
-        // Lists the metrics and their live values. Stacked renders these in
-        // about half this width, so read it for content and order rather than
-        // as a literal picture of the menu bar.
-        metricPreview.font = SearoomFont.metric(10)
-        metricPreview.textColor = .secondaryLabelColor
-        metricPreview.lineBreakMode = .byTruncatingTail
-        metricPreviewDot.imageScaling = .scaleNone
-        metricPreviewImage.imageScaling = .scaleNone
-        // One preview, drawn the way the chosen layout draws it. The group is
-        // what carries the accessibility label, because which of its views is
-        // visible depends on the layout.
-        metricPreviewGroup.orientation = .horizontal
-        metricPreviewGroup.alignment = .centerY
-        metricPreviewGroup.spacing = 3
-        metricPreviewGroup.setViews([metricPreviewImage, metricPreviewDot, metricPreview], in: .leading)
-        metricPreviewGroup.setAccessibilityLabel("Menu bar preview")
-
         let metricButtons = NSStackView(views: [
             addMetricPopUp, moveMetricUpButton, moveMetricDownButton, removeMetricButton
         ])
         metricButtons.orientation = .horizontal
         metricButtons.alignment = .centerY
         metricButtons.spacing = 6
-        let metricControls = NSStackView(views: [metricScroll, metricButtons, metricPreviewGroup])
+        let metricControls = NSStackView(views: [metricScroll, metricButtons])
         metricControls.orientation = .vertical
         metricControls.alignment = .leading
         metricControls.spacing = 6
@@ -767,41 +744,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         moveMetricDownButton.isEnabled = hasSelection && row < menuBarMetrics.count - 1
         removeMetricButton.isEnabled = hasSelection
 
-        syncMetricPreview()
-        metricPreviewGroup.toolTip = "\(menuBarMetrics.count) of \(MenuBarMetric.maximumCount) selected"
-    }
-
-    /// Draws the preview through the same renderer the status item uses, so
-    /// changing the layout changes the mockup rather than leaving a stale one
-    /// above the control that just changed.
-    private func syncMetricPreview() {
-        let level = model.currentSample.overallPressureLevel
-        let appearance = metricPreviewGroup.effectiveAppearance
-        let components = model.menuBarComponents
-        let stacked = model.settings.menuBarLayout == .stacked
-
-        if menuBarMetrics.isEmpty {
-            metricPreviewImage.image = SearoomIcon.image(for: level)
-        } else if stacked {
-            metricPreviewImage.image = MenuBarRenderer.image(
-                components: components,
-                level: level,
-                appearance: appearance
-            )
-        } else {
-            metricPreviewDot.image = SearoomStatusDot.image(for: level, appearance: appearance)
-            metricPreview.attributedStringValue = MenuBarRenderer.attributedTitle(
-                components,
-                appearance: appearance
-            )
-        }
-        let showsImage = menuBarMetrics.isEmpty || stacked
-        metricPreviewImage.isHidden = !showsImage
-        metricPreviewDot.isHidden = showsImage
-        metricPreview.isHidden = showsImage
-        metricPreviewGroup.setAccessibilityValue(
-            menuBarMetrics.isEmpty ? "Mark only" : model.menuBarText
-        )
+        metricScroll.toolTip = "\(menuBarMetrics.count) of \(MenuBarMetric.maximumCount) selected"
     }
 
     @objc private func layoutChanged() {

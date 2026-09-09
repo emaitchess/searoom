@@ -268,7 +268,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let isMarkOnly = model.settings.menuBarMetrics.isEmpty
         let components = menuBarComponents(sample: sample)
         let text = components.map(\.text).joined(separator: "·")
-        model.setMenuBarText(text, components: components)
         let level = sample.overallPressureLevel
         let appearance = button.effectiveAppearance
             .bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
