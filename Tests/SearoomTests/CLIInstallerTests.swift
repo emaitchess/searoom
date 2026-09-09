@@ -271,4 +271,129 @@ final class CLIInstallerTests: XCTestCase {
             )
         )
     }
+
+    // MARK: - PATH
+
+    private var zprofile: URL { homeDirectory.appendingPathComponent(".zprofile") }
+    private var bashProfile: URL { homeDirectory.appendingPathComponent(".bash_profile") }
+    private let emptyEnvironment = ["PATH": "/usr/bin:/bin"]
+
+    func testTheBlockIsAddedWhenTheDirectoryIsNotReachable() throws {
+        let changed = CLIInstaller.addBinDirectoryToPath(
+            homeDirectory: homeDirectory.path,
+            environment: emptyEnvironment
+        )
+        XCTAssertEqual(changed, [zprofile])
+        let text = try String(contentsOf: zprofile, encoding: .utf8)
+        XCTAssertTrue(text.contains(CLIInstaller.profileBlockStart))
+        XCTAssertTrue(text.contains(CLIInstaller.profileBlockEnd))
+        XCTAssertTrue(text.contains("export PATH=\"$HOME/.local/bin:$PATH\""))
+    }
+
+    func testTheBlockIsNotAddedTwice() throws {
+        CLIInstaller.addBinDirectoryToPath(homeDirectory: homeDirectory.path, environment: emptyEnvironment)
+        let second = CLIInstaller.addBinDirectoryToPath(
+            homeDirectory: homeDirectory.path,
+            environment: emptyEnvironment
+        )
+        XCTAssertTrue(second.isEmpty)
+        let text = try String(contentsOf: zprofile, encoding: .utf8)
+        XCTAssertEqual(text.components(separatedBy: CLIInstaller.profileBlockStart).count - 1, 1)
+    }
+
+    /// A GUI app launched from Finder inherits a PATH that never reflects the
+    /// user's shell setup, so someone who already put the directory on PATH by
+    /// hand must not get a redundant block appended.
+    func testAProfileThatAlreadyMentionsTheDirectoryIsLeftAlone() throws {
+        try "export PATH=\"$HOME/.local/bin:$PATH\"\n".write(to: zprofile, atomically: true, encoding: .utf8)
+        let changed = CLIInstaller.addBinDirectoryToPath(
+            homeDirectory: homeDirectory.path,
+            environment: emptyEnvironment
+        )
+        XCTAssertTrue(changed.isEmpty)
+        XCTAssertFalse(try String(contentsOf: zprofile, encoding: .utf8).contains(CLIInstaller.profileBlockStart))
+    }
+
+    func testNothingIsWrittenWhenTheDirectoryIsAlreadyOnPath() {
+        let live = ["PATH": CLIInstaller.binDirectory(homeDirectory: homeDirectory.path).path + ":/usr/bin"]
+        XCTAssertTrue(CLIInstaller.addBinDirectoryToPath(
+            homeDirectory: homeDirectory.path,
+            environment: live
+        ).isEmpty)
+        XCTAssertFalse(fileManager.fileExists(atPath: zprofile.path))
+    }
+
+    /// A bash profile is only touched when the user already has one.
+    func testBashProfileIsUpdatedOnlyWhenItExists() throws {
+        CLIInstaller.addBinDirectoryToPath(homeDirectory: homeDirectory.path, environment: emptyEnvironment)
+        XCTAssertFalse(fileManager.fileExists(atPath: bashProfile.path))
+
+        try? fileManager.removeItem(at: zprofile)
+        try "# mine\n".write(to: bashProfile, atomically: true, encoding: .utf8)
+        let changed = CLIInstaller.addBinDirectoryToPath(
+            homeDirectory: homeDirectory.path,
+            environment: emptyEnvironment
+        )
+        XCTAssertEqual(Set(changed), Set([zprofile, bashProfile]))
+    }
+
+    func testRemovingTakesTheBlockAndNothingElse() throws {
+        let mine = "# my own setup\nexport EDITOR=vim\n"
+        try mine.write(to: zprofile, atomically: true, encoding: .utf8)
+        CLIInstaller.addBinDirectoryToPath(homeDirectory: homeDirectory.path, environment: emptyEnvironment)
+        XCTAssertTrue(try String(contentsOf: zprofile, encoding: .utf8).contains(CLIInstaller.profileBlockStart))
+
+        CLIInstaller.removeBinDirectoryFromPath(homeDirectory: homeDirectory.path)
+        let after = try String(contentsOf: zprofile, encoding: .utf8)
+        XCTAssertFalse(after.contains(CLIInstaller.profileBlockStart))
+        XCTAssertFalse(after.contains("$HOME/.local/bin"))
+        XCTAssertTrue(after.contains("export EDITOR=vim"), "the user's own lines must survive")
+        XCTAssertTrue(after.contains("# my own setup"))
+    }
+
+    func testRemovingWhenNothingWasAddedChangesNoFiles() throws {
+        try "# untouched\n".write(to: zprofile, atomically: true, encoding: .utf8)
+        XCTAssertTrue(CLIInstaller.removeBinDirectoryFromPath(homeDirectory: homeDirectory.path).isEmpty)
+        XCTAssertEqual(try String(contentsOf: zprofile, encoding: .utf8), "# untouched\n")
+    }
+
+    /// The whole point: after linking at launch, a login shell can find it.
+    func testLaunchLinkingAlsoPutsTheDirectoryOnPath() throws {
+        CLIInstaller.linkOnLaunch(
+            declined: false,
+            homeDirectory: homeDirectory.path,
+            executableURL: executableURL
+        )
+        XCTAssertTrue(fileManager.fileExists(atPath: linkURL.path))
+        XCTAssertTrue(try String(contentsOf: zprofile, encoding: .utf8).contains("$HOME/.local/bin"))
+    }
+
+    /// PATH is set in `.zshrc` far more often than in `.zprofile`, so a
+    /// detection that only read the files Searoom writes would append a second
+    /// entry for everyone who had already configured this themselves.
+    func testAnEntryInZshrcCountsEvenThoughSearoomNeverWritesThere() throws {
+        let zshrc = homeDirectory.appendingPathComponent(".zshrc")
+        try "export PATH=\"$HOME/.local/bin:$PATH\"\n".write(to: zshrc, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(CLIInstaller.binDirectoryOnPath(
+            homeDirectory: homeDirectory.path,
+            environment: emptyEnvironment
+        ))
+        XCTAssertTrue(CLIInstaller.addBinDirectoryToPath(
+            homeDirectory: homeDirectory.path,
+            environment: emptyEnvironment
+        ).isEmpty)
+        XCTAssertFalse(fileManager.fileExists(atPath: zprofile.path))
+    }
+
+    /// Removal has to reach wherever the block ended up, not only the files
+    /// the writer would pick today.
+    func testRemovalScansEveryLoginFileNotJustTheWritableOnes() throws {
+        let bashrc = homeDirectory.appendingPathComponent(".bashrc")
+        try (CLIInstaller.profileBlock + "\n").write(to: bashrc, atomically: true, encoding: .utf8)
+
+        let changed = CLIInstaller.removeBinDirectoryFromPath(homeDirectory: homeDirectory.path)
+        XCTAssertEqual(changed, [bashrc])
+        XCTAssertFalse(try String(contentsOf: bashrc, encoding: .utf8).contains("$HOME/.local/bin"))
+    }
 }

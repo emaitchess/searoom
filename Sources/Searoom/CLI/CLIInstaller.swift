@@ -1,9 +1,16 @@
 import Foundation
 
-/// Rootless installation of the lowercase `searoom` command. Creates exactly
-/// one symlink at `~/.local/bin/searoom` pointing at the installed app
-/// executable. It never edits shell profiles, never writes system bin
-/// directories, and never requests privileges.
+/// Rootless installation of the lowercase `searoom` command. Creates one
+/// symlink at `~/.local/bin/searoom` pointing at the installed app executable,
+/// and, when that directory is not already reachable, one clearly marked block
+/// in the user's shell profile that puts it on PATH. It never writes system
+/// bin directories and never requests privileges.
+///
+/// The profile block exists because nothing else reaches a stock PATH without
+/// privileges. macOS ships `/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, and
+/// both `/usr/local/bin` and `/etc/paths.d` are root-owned, so a command a user
+/// can install without authorization has to arrive through their own profile.
+/// Both edits are reversible from the same toggle that made them.
 enum CLIInstaller {
     struct Outcome: Equatable {
         let exitCode: Int32
@@ -190,7 +197,7 @@ enum CLIInstaller {
         let searchPaths = (ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":", omittingEmptySubsequences: false)
             .map(String.init)
-        let pathVisible = searchPaths.contains(binDirectory(homeDirectory: homeDirectory).path)
+        let pathVisible = binDirectoryOnPath(homeDirectory: homeDirectory, fileManager: fileManager)
         guard fileManager.fileExists(atPath: link.path) else {
             if let external = externalCommand(
                 on: searchPaths,
@@ -234,6 +241,130 @@ enum CLIInstaller {
         return nil
     }
 
+    // MARK: - Shell profile
+
+    /// The files Searoom will write to. `.zprofile` is created when absent
+    /// because zsh is the macOS default; `.bash_profile` is only touched when
+    /// the user already has one, so a bash file is never conjured for someone
+    /// who does not use bash.
+    static func profileURLs(homeDirectory: String, fileManager: FileManager = .default) -> [URL] {
+        let home = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+        var urls = [home.appendingPathComponent(".zprofile")]
+        let bashProfile = home.appendingPathComponent(".bash_profile")
+        if fileManager.fileExists(atPath: bashProfile.path) {
+            urls.append(bashProfile)
+        }
+        return urls
+    }
+
+    /// The files Searoom will read before deciding to write one. Deliberately
+    /// wider than the write set: people set PATH in `.zshrc` far more often
+    /// than in `.zprofile`, and appending a second entry to someone who has
+    /// already configured this is exactly the sort of uninvited edit that
+    /// makes a tool untrustworthy.
+    static func inspectedProfileURLs(homeDirectory: String) -> [URL] {
+        let home = URL(fileURLWithPath: homeDirectory, isDirectory: true)
+        return [".zprofile", ".zshrc", ".zshenv", ".bash_profile", ".bashrc", ".profile"]
+            .map(home.appendingPathComponent)
+    }
+
+    static let profileBlockStart = "# >>> searoom >>>"
+    static let profileBlockEnd = "# <<< searoom <<<"
+
+    static var profileBlock: String {
+        """
+        \(profileBlockStart)
+        # Puts the searoom command on PATH. Written by Searoom, and removed
+        # again when the command is turned off in Searoom's settings.
+        export PATH="$HOME/.local/bin:$PATH"
+        \(profileBlockEnd)
+        """
+    }
+
+    /// True when the command's directory will already be found, either in this
+    /// process's PATH or because a login file mentions it.
+    ///
+    /// The login files matter more than the environment here. A GUI app
+    /// launched from Finder inherits a minimal PATH that never reflects the
+    /// user's shell configuration, so trusting the environment alone would
+    /// append a redundant block to the profile of everyone who had already set
+    /// this up by hand.
+    static func binDirectoryOnPath(
+        homeDirectory: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let directory = binDirectory(homeDirectory: homeDirectory).path
+        let searchPaths = (environment["PATH"] ?? "")
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .map(String.init)
+        if searchPaths.contains(directory) { return true }
+        for url in inspectedProfileURLs(homeDirectory: homeDirectory) {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            if text.contains(".local/bin") { return true }
+        }
+        return false
+    }
+
+    /// Appends the block when, and only when, the directory is not already
+    /// reachable. Returns the files it changed.
+    @discardableResult
+    static func addBinDirectoryToPath(
+        homeDirectory: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        guard !binDirectoryOnPath(
+            homeDirectory: homeDirectory,
+            environment: environment,
+            fileManager: fileManager
+        ) else { return [] }
+
+        var changed: [URL] = []
+        for url in profileURLs(homeDirectory: homeDirectory, fileManager: fileManager) {
+            let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            guard !existing.contains(profileBlockStart) else { continue }
+            let separator = existing.isEmpty || existing.hasSuffix("\n") ? "" : "\n"
+            let updated = existing + separator + "\n" + profileBlock + "\n"
+            guard (try? updated.write(to: url, atomically: true, encoding: .utf8)) != nil else { continue }
+            changed.append(url)
+        }
+        return changed
+    }
+
+    /// Removes the block, and only the block, from every login file that has
+    /// one. Anything the user wrote around it is left exactly as it was.
+    @discardableResult
+    static func removeBinDirectoryFromPath(
+        homeDirectory: String,
+        fileManager: FileManager = .default
+    ) -> [URL] {
+        var changed: [URL] = []
+        for url in inspectedProfileURLs(homeDirectory: homeDirectory) {
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
+                  text.contains(profileBlockStart) else { continue }
+            var kept: [String] = []
+            var inside = false
+            for line in text.components(separatedBy: "\n") {
+                if line.trimmingCharacters(in: .whitespaces) == profileBlockStart {
+                    inside = true
+                    // Drop the blank line the block was padded with.
+                    if kept.last?.isEmpty == true { kept.removeLast() }
+                    continue
+                }
+                if inside {
+                    if line.trimmingCharacters(in: .whitespaces) == profileBlockEnd { inside = false }
+                    continue
+                }
+                kept.append(line)
+            }
+            let updated = kept.joined(separator: "\n")
+            guard (try? updated.write(to: url, atomically: true, encoding: .utf8)) != nil else { continue }
+            changed.append(url)
+        }
+        return changed
+    }
+
     // MARK: - First launch
 
     /// Links the command at launch so it is there the first time someone opens
@@ -255,11 +386,16 @@ enum CLIInstaller {
             fileManager: fileManager
         )
         guard !declined, case .absent = current else { return current }
-        _ = install(
+        let outcome = install(
             homeDirectory: homeDirectory,
             executableURL: executableURL,
             fileManager: fileManager
         )
+        // A link nothing can find is not an installed command, so the PATH
+        // entry is part of the same step rather than advice printed after it.
+        if outcome.exitCode == 0 {
+            addBinDirectoryToPath(homeDirectory: homeDirectory, fileManager: fileManager)
+        }
         return state(
             homeDirectory: homeDirectory,
             executableURL: executableURL,

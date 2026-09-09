@@ -10,10 +10,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The `searoom` command is linked on first launch, so it is there the first
   time someone opens a terminal rather than waiting to be found in Settings. It
-  creates one symlink at `~/.local/bin/searoom` and nothing else: no prompt, no
-  shell profile edit, no privileges. It does nothing when the command already
+  creates one symlink at `~/.local/bin/searoom` and, when that directory is not
+  already reachable, one clearly marked block in `~/.zprofile` that puts it on
+  PATH. No prompt and no privileges. It does nothing when the command already
   works, when something else occupies the path, when the app is running from a
   disk image or App Translocation, or when the command has been turned off.
+
+  The profile edit is new behaviour for an installer that previously promised
+  never to touch a shell file, and it is there because nothing else reaches a
+  stock PATH without privileges: macOS ships
+  `/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, and both `/usr/local/bin` and
+  `/etc/paths.d` are root-owned. The block is written only when no login file
+  already mentions `~/.local/bin` — `.zshrc`, `.zshenv`, `.bashrc` and
+  `.profile` are read even though Searoom never writes to them, because PATH is
+  set in `.zshrc` far more often than in `.zprofile` — and turning the command
+  off removes the block again, leaving every surrounding line untouched.
 - Settings replaces the Install and Remove buttons with one `Enable the searoom
   command` toggle. Its state is read from the filesystem rather than from a
   stored flag, so it always shows what a terminal would find. A command

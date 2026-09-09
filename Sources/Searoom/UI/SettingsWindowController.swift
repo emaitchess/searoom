@@ -276,7 +276,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         cliToggle.action = #selector(toggleCLICommand)
         cliToggle.setAccessibilityLabel("Enable the searoom terminal command")
         cliToggle.setAccessibilityHelp(
-            "Creates ~/.local/bin/searoom as a symlink to this app. Edits nothing else."
+            "Creates ~/.local/bin/searoom as a symlink to this app, and adds that "
+                + "folder to your PATH in ~/.zprofile if it is not there already."
         )
         cliStatusLabel.font = SearoomFont.system(10)
         cliStatusLabel.textColor = .secondaryLabelColor
@@ -633,6 +634,13 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     @objc private func toggleCLICommand() {
         let turningOn = cliToggle.state == .on
         let outcome = turningOn ? CLIInstaller.install() : CLIInstaller.uninstall()
+        // The PATH entry travels with the link: a command the shell cannot
+        // find is not installed, and one left behind after removal is litter.
+        if turningOn {
+            if outcome.exitCode == 0 { CLIInstaller.addBinDirectoryToPath(homeDirectory: NSHomeDirectory()) }
+        } else {
+            CLIInstaller.removeBinDirectoryFromPath(homeDirectory: NSHomeDirectory())
+        }
         cliStatusLabel.stringValue = outcome.message
         // Records the decision, so first-launch linking does not put the
         // command back after someone has deliberately turned it off.
