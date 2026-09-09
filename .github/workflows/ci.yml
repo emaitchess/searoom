@@ -45,6 +45,16 @@ jobs:
           "$LINK_DIR/searoom" watch --count 2 > /dev/null
           "$LINK_DIR/searoom" capabilities --pretty > /dev/null
           "$LINK_DIR/searoom" history --limit 2 > /dev/null
+          # The symlink is how Homebrew and install-cli expose the command, so
+          # the version reported through it must match the bundle rather than
+          # the placeholder. Asserted here because every telemetry document
+          # carries searoomVersion.
+          EXPECTED="$(plutil -extract CFBundleShortVersionString raw Support/Info.plist)"
+          REPORTED="$("$LINK_DIR/searoom" version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["searoomVersion"])')"
+          if [ "$REPORTED" != "$EXPECTED" ]; then
+            echo "searoom version through a symlink reported $REPORTED, expected $EXPECTED" >&2
+            exit 1
+          fi
       - name: Upload unsigned development build
         uses: actions/upload-artifact@v4
         with:

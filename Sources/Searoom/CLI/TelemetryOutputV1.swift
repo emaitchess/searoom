@@ -683,12 +683,48 @@ struct CLIVersionInfo {
     static let macosFloorConstant = "14.0"
 
     static func current() -> CLIVersionInfo {
-        let info = Bundle.main.infoDictionary
-        return CLIVersionInfo(
-            searoomVersion: info?["CFBundleShortVersionString"] as? String ?? "0.0.0",
-            buildNumber: info?["CFBundleVersion"] as? String ?? "0",
-            macosFloor: macosFloorConstant
-        )
+        resolve(info: Bundle.main.infoDictionary, executableURL: Bundle.main.executableURL)
+    }
+
+    /// The version reported through every document envelope.
+    ///
+    /// `Bundle.main` is derived from the path the process was launched with,
+    /// and that path is not resolved through symlinks. Both supported ways of
+    /// getting the command — Homebrew's `bin` link and `install-cli`'s
+    /// `~/.local/bin/searoom` — are symlinks outside the bundle, so
+    /// `Bundle.main` is the link's own directory and has no `Info.plist`.
+    /// Resources still load, because SwiftPM's accessor searches the
+    /// executable's directory as well, which is why this went unnoticed:
+    /// only the version was wrong, and it was wrong on the common path.
+    ///
+    /// Resolve the executable and read the `.app` that encloses it. A build
+    /// with no enclosing bundle, such as running straight out of `.build`,
+    /// keeps the placeholder rather than inventing a number.
+    static func resolve(info: [String: Any]?, executableURL: URL?) -> CLIVersionInfo {
+        if let version = version(from: info) { return version }
+        if let version = version(from: enclosingAppBundleInfo(executableURL: executableURL)) {
+            return version
+        }
+        return CLIVersionInfo(searoomVersion: "0.0.0", buildNumber: "0", macosFloor: macosFloorConstant)
+    }
+
+    private static func version(from info: [String: Any]?) -> CLIVersionInfo? {
+        guard let short = info?["CFBundleShortVersionString"] as? String,
+              let build = info?["CFBundleVersion"] as? String
+        else { return nil }
+        return CLIVersionInfo(searoomVersion: short, buildNumber: build, macosFloor: macosFloorConstant)
+    }
+
+    /// `.../Searoom.app/Contents/MacOS/searoom` -> the `Searoom.app` bundle.
+    private static func enclosingAppBundleInfo(executableURL: URL?) -> [String: Any]? {
+        guard let executableURL else { return nil }
+        let bundleURL = executableURL
+            .resolvingSymlinksInPath()
+            .deletingLastPathComponent()  // MacOS
+            .deletingLastPathComponent()  // Contents
+            .deletingLastPathComponent()  // Searoom.app
+        guard bundleURL.pathExtension == "app" else { return nil }
+        return Bundle(url: bundleURL)?.infoDictionary
     }
 }
 

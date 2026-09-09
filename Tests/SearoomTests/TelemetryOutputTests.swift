@@ -370,6 +370,76 @@ final class TelemetryOutputTests: XCTestCase {
         XCTAssertFalse(body.contains("\"$ref\": \"https"), "schema must not reference remote resources")
     }
 
+    // MARK: - Version resolution
+
+    /// Builds a throwaway `Fixture.app` and returns the executable inside it.
+    private func makeAppBundle(version: String, build: String) throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let macOS = root.appendingPathComponent("Fixture.app/Contents/MacOS", isDirectory: true)
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let plist: [String: Any] = [
+            "CFBundleShortVersionString": version,
+            "CFBundleVersion": build,
+            "CFBundleIdentifier": "app.searoom.Fixture",
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: root.appendingPathComponent("Fixture.app/Contents/Info.plist"))
+        let executable = macOS.appendingPathComponent("Searoom")
+        try Data().write(to: executable)
+        return executable
+    }
+
+    func testVersionPrefersTheMainBundleInfoDictionary() {
+        let version = CLIVersionInfo.resolve(
+            info: ["CFBundleShortVersionString": "1.2.3", "CFBundleVersion": "42"],
+            executableURL: nil
+        )
+        XCTAssertEqual(version.searoomVersion, "1.2.3")
+        XCTAssertEqual(version.buildNumber, "42")
+        XCTAssertEqual(version.macosFloor, CLIVersionInfo.macosFloorConstant)
+    }
+
+    /// The Homebrew and `install-cli` path: the command is a symlink outside
+    /// the bundle, so `Bundle.main` carries no Info.plist at all.
+    func testVersionResolvesThroughASymlinkOutsideTheBundle() throws {
+        let executable = try makeAppBundle(version: "0.5.1", build: "7")
+        let link = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString + "-searoom")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: executable)
+        addTeardownBlock { try? FileManager.default.removeItem(at: link) }
+
+        let version = CLIVersionInfo.resolve(info: nil, executableURL: link)
+        XCTAssertEqual(version.searoomVersion, "0.5.1")
+        XCTAssertEqual(version.buildNumber, "7")
+    }
+
+    func testVersionResolvesFromTheExecutableInsideTheBundle() throws {
+        let executable = try makeAppBundle(version: "0.5.1", build: "7")
+        let version = CLIVersionInfo.resolve(info: nil, executableURL: executable)
+        XCTAssertEqual(version.searoomVersion, "0.5.1")
+    }
+
+    /// A partial Info.plist must not report half a version.
+    func testVersionIgnoresAnInfoDictionaryMissingTheBuildNumber() throws {
+        let executable = try makeAppBundle(version: "0.5.1", build: "7")
+        let version = CLIVersionInfo.resolve(
+            info: ["CFBundleShortVersionString": "9.9.9"],
+            executableURL: executable
+        )
+        XCTAssertEqual(version.searoomVersion, "0.5.1", "an incomplete dictionary falls through to the bundle")
+    }
+
+    func testVersionFallsBackToThePlaceholderWithNoEnclosingBundle() throws {
+        let loose = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("Searoom")
+        let version = CLIVersionInfo.resolve(info: nil, executableURL: loose)
+        XCTAssertEqual(version.searoomVersion, "0.0.0")
+        XCTAssertEqual(version.buildNumber, "0")
+    }
+
     func testCLIMarkdownRendersSingleDefinition() throws {
         let definition = try XCTUnwrap(try CLIMetricResource.loadDefinitions().first)
         let markdown = CLIRunner.markdown(definition)

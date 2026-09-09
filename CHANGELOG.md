@@ -4,6 +4,22 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `searoom version` and the `searoomVersion` field in every telemetry document
+  reported `0.0.0 (build 0)` whenever the command was reached through a symlink
+  outside the app bundle, which is how both supported installations expose it:
+  Homebrew's `bin` link and the `~/.local/bin/searoom` that `install-cli`
+  creates. `Bundle.main` is derived from the launch path without resolving
+  symlinks, so it pointed at the link's own directory, which has no
+  `Info.plist`. Bundled resources were unaffected, because SwiftPM's accessor
+  also searches the executable's directory, which is why only the version was
+  wrong and only on the common path. The version now falls back to the `.app`
+  enclosing the resolved executable, and CI asserts the version reported
+  through a symlink against `Info.plist`.
+
 ## [0.5.0] - 2026-09-09
 
 ### Added
