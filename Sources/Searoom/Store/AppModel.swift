@@ -85,8 +85,13 @@ final class AppModel {
     /// Set by the status-item refresh; it posts nothing, so it cannot loop.
     private(set) var menuBarText = ""
 
-    func setMenuBarText(_ text: String) {
+    /// The components behind that text, kept so Settings can render the same
+    /// preview the status item draws instead of approximating it in a label.
+    private(set) var menuBarComponents: [MenuBarComponent] = []
+
+    func setMenuBarText(_ text: String, components: [MenuBarComponent]) {
         menuBarText = text
+        menuBarComponents = components
     }
 
     func setDashboardSectionOrder(_ order: [DashboardSection]) {

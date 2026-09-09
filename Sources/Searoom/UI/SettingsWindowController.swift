@@ -13,6 +13,11 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let moveMetricDownButton = NSButton(title: "Move Down", target: nil, action: nil)
     private let removeMetricButton = NSButton(title: "Remove", target: nil, action: nil)
     private let metricPreview = NSTextField(labelWithString: "")
+    private let metricPreviewDot = NSImageView()
+    /// The stacked layout is one drawn image, so the preview shows the
+    /// image itself rather than a text stand-in for it.
+    private let metricPreviewImage = NSImageView()
+    private let metricPreviewGroup = NSStackView()
     private let layoutControl = NSSegmentedControl(
         labels: MenuBarLayout.allCases.map(\.title),
         trackingMode: .selectOne,
@@ -57,7 +62,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     init(model: AppModel, shortcutManager: GlobalShortcutManager) {
         self.model = model
         self.shortcutManager = shortcutManager
-        let window = NSWindow(
+        let window = SettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 470, height: 720),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -144,7 +149,16 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         metricPreview.font = SearoomFont.metric(10)
         metricPreview.textColor = .secondaryLabelColor
         metricPreview.lineBreakMode = .byTruncatingTail
-        metricPreview.setAccessibilityLabel("Menu bar preview")
+        metricPreviewDot.imageScaling = .scaleNone
+        metricPreviewImage.imageScaling = .scaleNone
+        // One preview, drawn the way the chosen layout draws it. The group is
+        // what carries the accessibility label, because which of its views is
+        // visible depends on the layout.
+        metricPreviewGroup.orientation = .horizontal
+        metricPreviewGroup.alignment = .centerY
+        metricPreviewGroup.spacing = 3
+        metricPreviewGroup.setViews([metricPreviewImage, metricPreviewDot, metricPreview], in: .leading)
+        metricPreviewGroup.setAccessibilityLabel("Menu bar preview")
 
         let metricButtons = NSStackView(views: [
             addMetricPopUp, moveMetricUpButton, moveMetricDownButton, removeMetricButton
@@ -152,7 +166,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         metricButtons.orientation = .horizontal
         metricButtons.alignment = .centerY
         metricButtons.spacing = 6
-        let metricControls = NSStackView(views: [metricScroll, metricButtons, metricPreview])
+        let metricControls = NSStackView(views: [metricScroll, metricButtons, metricPreviewGroup])
         metricControls.orientation = .vertical
         metricControls.alignment = .leading
         metricControls.spacing = 6
@@ -753,10 +767,41 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         moveMetricDownButton.isEnabled = hasSelection && row < menuBarMetrics.count - 1
         removeMetricButton.isEnabled = hasSelection
 
-        metricPreview.stringValue = menuBarMetrics.isEmpty
-            ? "Mark only"
-            : model.menuBarText
-        metricPreview.toolTip = "\(menuBarMetrics.count) of \(MenuBarMetric.maximumCount) selected"
+        syncMetricPreview()
+        metricPreviewGroup.toolTip = "\(menuBarMetrics.count) of \(MenuBarMetric.maximumCount) selected"
+    }
+
+    /// Draws the preview through the same renderer the status item uses, so
+    /// changing the layout changes the mockup rather than leaving a stale one
+    /// above the control that just changed.
+    private func syncMetricPreview() {
+        let level = model.currentSample.overallPressureLevel
+        let appearance = metricPreviewGroup.effectiveAppearance
+        let components = model.menuBarComponents
+        let stacked = model.settings.menuBarLayout == .stacked
+
+        if menuBarMetrics.isEmpty {
+            metricPreviewImage.image = SearoomIcon.image(for: level)
+        } else if stacked {
+            metricPreviewImage.image = MenuBarRenderer.image(
+                components: components,
+                level: level,
+                appearance: appearance
+            )
+        } else {
+            metricPreviewDot.image = SearoomStatusDot.image(for: level, appearance: appearance)
+            metricPreview.attributedStringValue = MenuBarRenderer.attributedTitle(
+                components,
+                appearance: appearance
+            )
+        }
+        let showsImage = menuBarMetrics.isEmpty || stacked
+        metricPreviewImage.isHidden = !showsImage
+        metricPreviewDot.isHidden = showsImage
+        metricPreview.isHidden = showsImage
+        metricPreviewGroup.setAccessibilityValue(
+            menuBarMetrics.isEmpty ? "Mark only" : model.menuBarText
+        )
     }
 
     @objc private func layoutChanged() {
@@ -1028,6 +1073,24 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         label.font = SearoomFont.metric(size)
         label.textColor = color
         return label
+    }
+}
+
+/// Closes on Command-W.
+///
+/// The app is an accessory, which means it never installs a menu bar, and
+/// `NSApp.mainMenu` key equivalents are never matched: the existing Quit item's
+/// Command-Q does nothing either. So the shortcut has to be handled by the
+/// window that it should close. Closing leaves the app running in the menu bar,
+/// which is the whole point of Command-W rather than Command-Q.
+private final class SettingsWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
+            performClose(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 

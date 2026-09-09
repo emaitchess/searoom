@@ -112,6 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     @objc private func settingsUpdated() {
         if activeSampleInterval != model.settings.sampleInterval { startSampling() }
+        // Metric and layout changes used to wait for the next sample, which at
+        // ten seconds is long enough to read as the setting not having worked.
+        // This also refreshes the cached components the Settings preview draws.
+        updateStatusItem()
     }
 
     @objc private func openDashboard() {
@@ -264,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let isMarkOnly = model.settings.menuBarMetrics.isEmpty
         let components = menuBarComponents(sample: sample)
         let text = components.map(\.text).joined(separator: "·")
-        model.setMenuBarText(text)
+        model.setMenuBarText(text, components: components)
         let level = sample.overallPressureLevel
         let appearance = button.effectiveAppearance
             .bestMatch(from: [.darkAqua, .aqua]) ?? .aqua
@@ -310,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
                 )
             }
             if components != lastStatusComponents || appearanceChanged || layoutChanged {
-                button.attributedTitle = attributedMenuBarTitle(
+                button.attributedTitle = MenuBarRenderer.attributedTitle(
                     components,
                     appearance: button.effectiveAppearance
                 )
@@ -335,39 +339,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// Low Power Mode - so the cap of five is on selections, not on groups.
     private func menuBarComponents(sample: SystemSample) -> [MenuBarComponent] {
         model.settings.menuBarMetrics.flatMap { customMetricComponents($0, sample: sample) }
-    }
-
-    private func attributedMenuBarTitle(
-        _ components: [MenuBarComponent],
-        appearance: NSAppearance?
-    ) -> NSAttributedString {
-        let title = NSMutableAttributedString()
-        let theme = SearoomTheme(appearance: appearance)
-        for (index, component) in components.enumerated() {
-            if index > 0 {
-                title.append(NSAttributedString(
-                    string: "·",
-                    attributes: [
-                        .font: SearoomFont.metric(9.5),
-                        .foregroundColor: theme.subdued
-                    ]
-                ))
-            }
-            let color: NSColor = switch component.tone {
-            case .pressure(let level): theme.color(for: level)
-            case .activity(true): theme.cool
-            case .activity(false): theme.subdued
-            case .neutral: .labelColor
-            }
-            title.append(NSAttributedString(
-                string: component.text,
-                attributes: [
-                    .font: SearoomFont.metric(10.5),
-                    .foregroundColor: color
-                ]
-            ))
-        }
-        return title
     }
 
     /// The label is the sensor source, padded so that switching between, say,
@@ -613,6 +584,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
         applicationItem.submenu = applicationMenu
         mainMenu.addItem(applicationItem)
+
         NSApp.mainMenu = mainMenu
     }
 

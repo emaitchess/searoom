@@ -183,6 +183,41 @@ enum MenuBarRenderer {
         return image
     }
 
+    /// The inline layout's title. Pure, and shared with the Settings preview
+    /// so the mockup cannot drift from what the menu bar actually draws.
+    static func attributedTitle(
+        _ components: [MenuBarComponent],
+        appearance: NSAppearance?
+    ) -> NSAttributedString {
+        let title = NSMutableAttributedString()
+        let theme = SearoomTheme(appearance: appearance)
+        for (index, component) in components.enumerated() {
+            if index > 0 {
+                title.append(NSAttributedString(
+                    string: "·",
+                    attributes: [
+                        .font: SearoomFont.metric(9.5),
+                        .foregroundColor: theme.subdued
+                    ]
+                ))
+            }
+            let color: NSColor = switch component.tone {
+            case .pressure(let level): theme.color(for: level)
+            case .activity(true): theme.cool
+            case .activity(false): theme.subdued
+            case .neutral: .labelColor
+            }
+            title.append(NSAttributedString(
+                string: component.text,
+                attributes: [
+                    .font: SearoomFont.metric(10.5),
+                    .foregroundColor: color
+                ]
+            ))
+        }
+        return title
+    }
+
     static func color(for tone: MenuBarTone, theme: SearoomTheme) -> NSColor {
         switch tone {
         case .pressure(let level): theme.color(for: level)
