@@ -1104,7 +1104,7 @@ extension MetricDefinitionV1 {
 
 extension CLICommandCatalog.Argument {
     private enum Keys: String, CodingKey {
-        case name, kind, required, defaultValue, validValues
+        case name, kind, required, defaultValue, validValues, shorthand
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1114,5 +1114,6 @@ extension CLICommandCatalog.Argument {
         try container.encode(required, forKey: .required)
         try TelemetryNullEncoding.encode(defaultValue, .defaultValue, &container)
         try TelemetryNullEncoding.encode(validValues, .validValues, &container)
+        try TelemetryNullEncoding.encode(shorthand, .shorthand, &container)
     }
 }

@@ -160,6 +160,28 @@ enum CLIDateFormat {
 }
 
 enum CLIParser {
+    /// Single-letter aliases for the long options, resolved to the canonical
+    /// long name before any validation so error messages, the catalog, and the
+    /// per-command allowed sets never depend on which form was typed.
+    static let shorthands: [String: String] = [
+        "-h": "--help",
+        "-v": "--version",
+        "-j": "--json",
+        "-p": "--pretty",
+        "-i": "--interval",
+        "-c": "--count",
+        "-n": "--limit",
+        "-s": "--since",
+        "-u": "--until",
+        "-l": "--jsonl",
+    ]
+
+    /// `-h` and `--help` after a recognized command name print that command's
+    /// reference and win over validating the rest of the line.
+    static func helpToken(in tokens: [String]) -> Bool {
+        tokens.contains("-h") || tokens.contains("--help")
+    }
+
     /// Parses a full argument vector, including the executable path at index 0.
     static func parse(arguments: [String]) -> CLIParsedInvocation {
         guard arguments.count > 0 else {
@@ -186,9 +208,9 @@ enum CLIParser {
                 return .run(.selfTest, json: false, pretty: false)
             case "--dump-sample":
                 return .run(.legacyDumpSample, json: false, pretty: false)
-            case "--version":
+            case "--version", "-v":
                 return .run(.version, json: false, pretty: false)
-            case "--help":
+            case "--help", "-h":
                 return .run(.help(command: nil), json: false, pretty: false)
             default:
                 break
@@ -215,6 +237,19 @@ enum CLIParser {
         guard let first = tokens.first else {
             throw CLIError(exitCode: .usage, message: "missing command")
         }
+
+        // Per-command help: `searoom COMMAND -h` (long or shorthand) prints
+        // that command's reference and wins over validating the rest of the
+        // line. The `help` command itself falls back to the general reference.
+        if helpToken(in: tokens) {
+            if first == "help" {
+                return ParsedCommand(command: .help(command: nil), json: false, pretty: false)
+            }
+            if CLICommandCatalog.names.contains(first) {
+                return ParsedCommand(command: .help(command: first), json: false, pretty: false)
+            }
+        }
+
         var rest = Array(tokens.dropFirst())
         var json = false
         var pretty = false
@@ -273,41 +308,47 @@ enum CLIParser {
         }
 
         func consumeOptions(allowed: Set<String>) throws {
-            while let token = rest.first, token.hasPrefix("--") {
+            // A bare `-` is not an option and falls through to the positional
+            // handling below, exactly as before shorthands existed.
+            while let token = rest.first, token.hasPrefix("-"), token != "-" {
                 rest.removeFirst()
-                guard allowed.contains(token) else {
+                // Resolve the shorthand to its canonical long name first: the
+                // allowed set, duplicate detection, and every error message
+                // are stated in the long form regardless of how it was typed.
+                let canonical = shorthands[token] ?? token
+                guard allowed.contains(canonical) else {
                     throw CLIError(
                         exitCode: .usage,
-                        message: "option \(token) is not valid for this command"
+                        message: "option \(canonical) is not valid for this command"
                     )
                 }
-                switch token {
+                switch canonical {
                 case "--json":
-                    try markUsed(token, json)
+                    try markUsed(canonical, json)
                     json = true
                 case "--pretty":
-                    try markUsed(token, pretty)
+                    try markUsed(canonical, pretty)
                     pretty = true
                 case "--jsonl":
-                    try markUsed(token, jsonl)
+                    try markUsed(canonical, jsonl)
                     jsonl = true
                 case "--interval":
-                    try markUsed(token, interval != nil)
-                    interval = try parseIntervalOption(takeValue(for: token))
+                    try markUsed(canonical, interval != nil)
+                    interval = try parseIntervalOption(takeValue(for: canonical))
                 case "--count":
-                    try markUsed(token, count != nil)
-                    count = try parsePositiveInteger(takeValue(for: token), option: token)
+                    try markUsed(canonical, count != nil)
+                    count = try parsePositiveInteger(takeValue(for: canonical), option: canonical)
                 case "--limit":
-                    try markUsed(token, limit != nil)
-                    limit = try parsePositiveInteger(takeValue(for: token), option: token)
+                    try markUsed(canonical, limit != nil)
+                    limit = try parsePositiveInteger(takeValue(for: canonical), option: canonical)
                 case "--since":
-                    try markUsed(token, since != nil)
-                    since = try parseTimeBound(takeValue(for: token), option: token)
+                    try markUsed(canonical, since != nil)
+                    since = try parseTimeBound(takeValue(for: canonical), option: canonical)
                 case "--until":
-                    try markUsed(token, until != nil)
-                    until = try parseTimeBound(takeValue(for: token), option: token)
+                    try markUsed(canonical, until != nil)
+                    until = try parseTimeBound(takeValue(for: canonical), option: canonical)
                 default:
-                    throw CLIError(exitCode: .usage, message: "unknown option \(token)")
+                    throw CLIError(exitCode: .usage, message: "unknown option \(canonical)")
                 }
                 _ = allowed
             }
@@ -428,6 +469,7 @@ struct CLICommandCatalog: Encodable {
         let required: Bool
         let defaultValue: String?
         let validValues: [String]?
+        let shorthand: String?
     }
 
     struct Command: Encodable {
@@ -450,14 +492,16 @@ struct CLICommandCatalog: Encodable {
         kind: String,
         required: Bool = false,
         defaultValue: String? = nil,
-        validValues: [String]? = nil
+        validValues: [String]? = nil,
+        shorthand: String? = nil
     ) -> Argument {
         Argument(
             name: name,
             kind: kind,
             required: required,
             defaultValue: defaultValue,
-            validValues: validValues
+            validValues: validValues,
+            shorthand: shorthand
         )
     }
 
@@ -466,10 +510,11 @@ struct CLICommandCatalog: Encodable {
             "--interval",
             kind: "integer seconds",
             defaultValue: "2",
-            validValues: (1...10).map(String.init)
+            validValues: (1...10).map(String.init),
+            shorthand: "-i"
         )
-        let pretty = argument("--pretty", kind: "flag")
-        let json = argument("--json", kind: "flag")
+        let pretty = argument("--pretty", kind: "flag", shorthand: "-p")
+        let json = argument("--json", kind: "flag", shorthand: "-j")
 
         let commands: [Command] = [
             Command(
@@ -505,7 +550,10 @@ struct CLICommandCatalog: Encodable {
             Command(
                 name: "watch",
                 summary: "Emit one compact sample document per line until interrupted or --count is reached.",
-                arguments: [interval, argument("--count", kind: "positive integer", defaultValue: "unbounded")],
+                arguments: [
+                    interval,
+                    argument("--count", kind: "positive integer", defaultValue: "unbounded", shorthand: "-c")
+                ],
                 outputDocument: "sample (one per line, JSON Lines)",
                 changesFilesystem: false,
                 collectsTelemetry: true,
@@ -524,10 +572,10 @@ struct CLICommandCatalog: Encodable {
                 name: "history",
                 summary: "Print persisted samples from the app's local history archive without collecting.",
                 arguments: [
-                    argument("--since", kind: "RFC 3339 timestamp or relative duration"),
-                    argument("--until", kind: "RFC 3339 timestamp or relative duration"),
-                    argument("--limit", kind: "positive integer"),
-                    argument("--jsonl", kind: "flag"),
+                    argument("--since", kind: "RFC 3339 timestamp or relative duration", shorthand: "-s"),
+                    argument("--until", kind: "RFC 3339 timestamp or relative duration", shorthand: "-u"),
+                    argument("--limit", kind: "positive integer", shorthand: "-n"),
+                    argument("--jsonl", kind: "flag", shorthand: "-l"),
                     pretty
                 ],
                 outputDocument: "history (or one sample per line with --jsonl)",

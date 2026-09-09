@@ -221,6 +221,120 @@ final class CLIParserTests: XCTestCase {
         let error = usage(parse("history", "--json"))
         XCTAssertEqual(error.message, "option --json is not valid for this command")
     }
+
+    // MARK: - Shorthand options
+
+    /// Every shorthand must resolve to exactly the long form it documents, in
+    /// the same parse the long form produces.
+    func testStandaloneShorthandHelpAndVersion() throws {
+        XCTAssertEqual(try command(of: parse("-h")).0, .help(command: nil))
+        XCTAssertEqual(try command(of: parseSymlink("-h")).0, .help(command: nil))
+        XCTAssertEqual(try command(of: parse("-v")).0, .version)
+        XCTAssertEqual(try command(of: parseSymlink("-v")).0, .version)
+    }
+
+    func testEveryShorthandResolvesToItsLongForm() throws {
+        XCTAssertEqual(try command(of: parse("sample", "-i", "4", "-p")).0, .sample(interval: 4))
+        XCTAssertTrue(try command(of: parse("sample", "-i", "4", "-p")).2)
+        XCTAssertEqual(try command(of: parse("watch", "-i", "1", "-c", "2")).0, .watch(interval: 1, count: 2))
+        XCTAssertTrue(try command(of: parse("help", "-j")).1)
+        XCTAssertTrue(try command(of: parse("version", "-j")).1)
+        XCTAssertTrue(try command(of: parse("capabilities", "-p")).2)
+
+        guard case .history(let filter, let jsonl) = try command(
+            of: parse("history", "-s", "30m", "-u", "15m", "-n", "5", "-l")
+        ).0 else {
+            return XCTFail("expected a history command")
+        }
+        XCTAssertEqual(filter.since, .relative(seconds: 1_800, token: "30m"))
+        XCTAssertEqual(filter.until, .relative(seconds: 900, token: "15m"))
+        XCTAssertEqual(filter.limit, 5)
+        XCTAssertTrue(jsonl)
+    }
+
+    func testShorthandErrorsNameTheCanonicalOption() {
+        XCTAssertEqual(usage(parse("sample", "-i")).message, "--interval requires a value")
+        XCTAssertEqual(usage(parse("sample", "-i", "2", "-i", "3")).message, "duplicate option --interval")
+        XCTAssertEqual(usage(parse("schema", "-j")).message, "option --json is not valid for this command")
+        XCTAssertEqual(
+            usage(parse("watch", "-c", "0")).message,
+            "0 is not a positive whole number for --count"
+        )
+        XCTAssertEqual(
+            usage(parse("history", "-s", "bogus")).message,
+            "bogus is not an RFC 3339 timestamp or relative duration for --since"
+        )
+        XCTAssertEqual(usage(parse("sample", "-v")).message, "option --version is not valid for this command")
+    }
+
+    /// `searoom COMMAND -h` prints that command's reference and wins over
+    /// validating the rest of the line, in both flag spellings.
+    func testPerCommandHelpWinsOverValidation() throws {
+        XCTAssertEqual(try command(of: parse("sample", "-h")).0, .help(command: "sample"))
+        XCTAssertEqual(try command(of: parse("sample", "--help")).0, .help(command: "sample"))
+        XCTAssertEqual(try command(of: parse("history", "--since", "bogus", "-h")).0, .help(command: "history"))
+        XCTAssertEqual(try command(of: parse("watch", "-p", "-h")).0, .help(command: "watch"))
+        XCTAssertEqual(try command(of: parse("help", "-h")).0, .help(command: nil))
+        XCTAssertEqual(try command(of: parse("help", "-h", "--json")).0, .help(command: nil))
+    }
+
+    func testPerCommandHelpRequiresAKnownCommand() {
+        usage(parse("bogus", "-h"))
+        usage(parse("-h", "extra"))
+    }
+
+    /// The bundled catalog advertises one shorthand per option argument and
+    /// none for positional arguments, and every advertised shorthand parses.
+    /// `-h` and `-v` are deliberately absent: they are standalone flags
+    /// documented in the usage text, not arguments of the help/version
+    /// commands, so the catalog has nothing to attach them to.
+    func testCatalogShorthandsMatchTheParserTable() throws {
+        let catalog = CLICommandCatalog.make()
+        let shorthands = CLIParser.shorthands
+        var seen: Set<String> = []
+        for command in catalog.commands {
+            for argument in command.arguments {
+                guard let shorthand = argument.shorthand else { continue }
+                XCTAssertEqual(shorthands[shorthand], argument.name, command.name)
+                seen.insert(shorthand)
+            }
+        }
+        XCTAssertEqual(seen.sorted(), ["-c", "-i", "-j", "-l", "-n", "-p", "-s", "-u"])
+        XCTAssertEqual(shorthands["-h"], "--help")
+        XCTAssertEqual(shorthands["-v"], "--version")
+        // Positional arguments never carry a shorthand.
+        XCTAssertNil(catalog.commands.first { $0.name == "help" }?.arguments.first { $0.name == "COMMAND" }?.shorthand)
+        XCTAssertNil(catalog.commands.first { $0.name == "metrics" }?.arguments.first { $0.name == "METRIC" }?.shorthand)
+    }
+
+    /// The catalog document stays valid with the additive `shorthand` field:
+    /// the long option carries its single-letter form, and a positional keeps
+    /// the explicit `null` the v1 null-encoding contract requires.
+    func testCatalogArgumentShorthandEncoding() throws {
+        let document = HelpCatalogDocumentV1(
+            catalog: CLICommandCatalog.make(),
+            version: CLIVersionInfo(searoomVersion: "0.0.0", buildNumber: "0", macosFloor: "14.0"),
+            generatedAt: Date(timeIntervalSinceReferenceDate: 0)
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: TelemetryOutputV1.encode(document, pretty: false)
+        ) as! [String: Any]
+        let catalog = try XCTUnwrap(object["catalog"] as? [String: Any], "catalog missing")
+        let commands = try XCTUnwrap(catalog["commands"] as? [[String: Any]])
+
+        let sample = try XCTUnwrap(commands.first { $0["name"] as? String == "sample" })
+        let sampleArguments = try XCTUnwrap(sample["arguments"] as? [[String: Any]])
+        let interval = try XCTUnwrap(sampleArguments.first { $0["name"] as? String == "--interval" })
+        XCTAssertEqual(interval["shorthand"] as? String, "-i")
+
+        let help = try XCTUnwrap(commands.first { $0["name"] as? String == "help" })
+        let helpArguments = try XCTUnwrap(help["arguments"] as? [[String: Any]])
+        let commandPositional = try XCTUnwrap(helpArguments.first { $0["name"] as? String == "COMMAND" })
+        XCTAssertTrue(
+            commandPositional["shorthand"] is NSNull,
+            "positional arguments encode an explicit null shorthand"
+        )
+    }
 }
 
 private extension SystemSample {

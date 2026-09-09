@@ -16,6 +16,7 @@ Use the supplied Searoom sample or screenshot to explain what is observed, what 
    - `searoom schema` — the JSON Schema for all telemetry documents.
    - `searoom metrics --json` — canonical definitions, units, cadence, derivations, and limitations.
    - `searoom capabilities --pretty` — what is actually available on this Mac.
+4. Every option has a one-letter shorthand (`-j` is `--json`, `-p` is `--pretty`, `-i` is `--interval`, `-c` is `--count`, `-n` is `--limit`, `-s`/`-u` are `--since`/`--until`, `-l` is `--jsonl`), and `searoom COMMAND -h` prints that command's reference. Standalone, `searoom -h` prints the command reference and `searoom -v` the version.
 
 ## Safe use
 

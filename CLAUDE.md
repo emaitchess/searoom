@@ -26,13 +26,15 @@ swift test --disable-sandbox --filter testCollectorReturnsBoundedValues   # sing
 .build/debug/Searoom watch --count 2   # two JSON Lines samples
 .build/debug/Searoom status --pretty   # pressure, limiting signals, sustained context
 .build/debug/Searoom history --limit 2 --pretty
+.build/debug/Searoom sample -i 1 -p    # shorthand: --interval 1 --pretty
+.build/debug/Searoom history -s 3h -n 2 -l   # shorthand: --since 3h --limit 2 --jsonl
 .build/debug/Searoom capabilities --pretty
 .build/debug/Searoom metrics --json
 .build/debug/Searoom schema
 .build/debug/Searoom agent-guide
 ```
 
-The lowercase `searoom` command (any basename of exactly `searoom`) dispatches through `CLIParser`/`CLIRunner` in `Sources/Searoom/CLI/` before AppKit exists; recognized commands never construct `NSApplication` or `AppModel`. The app-bundle executable with no arguments still launches the GUI. `--dump-sample` output is pinned by `LegacyDumpSample` at exactly 41 fields; the public versioned documents live in `TelemetryOutputV1` and are covered by the bundled `telemetry-v1.schema.json`. The human `metrics` output is rendered from the bundled `metrics.json` at runtime by `CLIRunner.catalogMarkdown`, so there is no second Markdown artifact.
+The lowercase `searoom` command (any basename of exactly `searoom`) dispatches through `CLIParser`/`CLIRunner` in `Sources/Searoom/CLI/` before AppKit exists; recognized commands never construct `NSApplication` or `AppModel`. The app-bundle executable with no arguments still launches the GUI. `--dump-sample` output is pinned by `LegacyDumpSample` at exactly 41 fields; the public versioned documents live in `TelemetryOutputV1` and are covered by the bundled `telemetry-v1.schema.json`. The human `metrics` output is rendered from the bundled `metrics.json` at runtime by `CLIRunner.catalogMarkdown`, so there is no second Markdown artifact. Options also accept the single-letter shorthands in `CLIParser.shorthands`, resolved to the canonical long name before validation (`sample -i 1 -p` is `sample --interval 1 --pretty`); `searoom COMMAND -h` prints that command's reference, and standalone `-h`/`-v` mirror `--help`/`--version`.
 
 `--dump-sample` and `--self-test` both take two samples internally, because delta-based metrics (CPU, network, disk, self CPU) have no previous counter on the first read and are intentionally zero.
 

@@ -133,6 +133,15 @@ searoom schema               # JSON Schema for every telemetry document
 searoom help --json          # machine-readable catalog for agents
 ```
 
+Every option also has a one-letter shorthand, and both spellings work
+everywhere: `-j` is `--json`, `-p` is `--pretty`, `-i` is `--interval`, `-c` is
+`--count`, `-n` is `--limit`, `-s` and `-u` are `--since` and `--until`, and
+`-l` is `--jsonl`. Standalone, `searoom -h` prints the command reference and
+`searoom -v` prints the version. Any command also accepts `-h` (or `--help`),
+so `searoom watch -h` describes `watch` without leaving the line you were
+typing. The `help --json` catalog advertises each shorthand beside its long
+name, so automation can pick either form.
+
 The CLI is read-only and offline. Live samples never write to the app's
 history; `history` never collects anything. Unavailable sensors are reported as
 explicit `null` with an availability reason (`unavailable`, `warmingUp`,

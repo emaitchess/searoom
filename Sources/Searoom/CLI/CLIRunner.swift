@@ -247,6 +247,8 @@ enum CLIRunner {
         searoom — local, offline macOS capacity telemetry
 
         Usage: searoom COMMAND [OPTIONS]
+               searoom COMMAND -h        Reference for one command
+               searoom -h | searoom -v   This text, or the version
 
         Commands:
         """
@@ -259,9 +261,10 @@ enum CLIRunner {
           Searoom --dump-sample    One JSON sample in the persisted 41-field shape
           Searoom --self-test      Framework-independent collector checks
 
-        Run `searoom help COMMAND` for details, `searoom schema` for the JSON
-        Schema of every telemetry document, and `searoom metrics` for metric
-        semantics. Every command is offline and read-only except install-cli.
+        Run `searoom help COMMAND` — or `searoom COMMAND -h` — for details,
+        `searoom schema` for the JSON Schema of every telemetry document, and
+        `searoom metrics` for metric semantics. Every command is offline and
+        read-only except install-cli.
         """
         emit(Data(text.utf8), environment: environment)
         return 0
@@ -274,7 +277,11 @@ enum CLIRunner {
         } else {
             text += "  Arguments:\n"
             for argument in command.arguments {
-                var line = "    \(argument.name) (\(argument.kind)"
+                var line = "    "
+                if let shorthand = argument.shorthand {
+                    line += "\(shorthand), "
+                }
+                line += "\(argument.name) (\(argument.kind)"
                 if argument.required { line += ", required" }
                 if let defaultValue = argument.defaultValue { line += ", default \(defaultValue)" }
                 if let validValues = argument.validValues { line += ", one of \(validValues.joined(separator: ", "))" }
