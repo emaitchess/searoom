@@ -509,6 +509,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             orderTable.selectRowIndexes([selected], byExtendingSelection: false)
         }
         syncOrderButtons()
+        // Reads the filesystem, so it belongs in the same pass that reads the
+        // model: without it the switch and the agent-skills row keep whatever
+        // state the window was built with until someone touches a control.
+        syncCLIControls()
     }
 
     private func syncOrderButtons() {
