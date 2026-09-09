@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The `searoom` command is linked on first launch, so it is there the first
+  time someone opens a terminal rather than waiting to be found in Settings. It
+  creates one symlink at `~/.local/bin/searoom` and nothing else: no prompt, no
+  shell profile edit, no privileges. It does nothing when the command already
+  works, when something else occupies the path, when the app is running from a
+  disk image or App Translocation, or when the command has been turned off.
+- Settings replaces the Install and Remove buttons with one `Enable the searoom
+  command` toggle. Its state is read from the filesystem rather than from a
+  stored flag, so it always shows what a terminal would find. A command
+  provided by Homebrew is recognised and reported: the cask's link is not
+  Searoom's to remove, so the toggle shows it as on and names where it came
+  from instead of offering an off switch that would not work. Turning the
+  command off is remembered, so the next launch does not put it back.
+- An `Agent skills` control installs the bundled Agent Skill into the folders
+  coding agents read: Claude Code, Codex, Cursor and OpenCode, individually or
+  all at once. Each agent is a checkable item, so the same menu removes what it
+  installed, and an item shows a dash when the file on disk is not this
+  version. One `SKILL.md` per agent is written and nothing else is touched. The
+  row only appears while the command is enabled, because a skill that tells a
+  model to run `searoom` is useless without it.
+
 ### Fixed
 
 - `searoom history --jsonl` returned the single envelope document instead of

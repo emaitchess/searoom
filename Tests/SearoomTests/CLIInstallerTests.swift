@@ -171,4 +171,104 @@ final class CLIInstallerTests: XCTestCase {
         XCTAssertTrue(advice?.contains("export PATH") ?? false)
         XCTAssertFalse(fileManager.fileExists(atPath: profile.path))
     }
+
+    // MARK: - Linking at launch
+
+    /// Nobody should have to find a checkbox before `searoom` works in a
+    /// terminal, so the app links it once at launch.
+    func testLaunchLinksTheCommandWhenNothingIsThere() {
+        let state = CLIInstaller.linkOnLaunch(
+            declined: false,
+            homeDirectory: homeDirectory.path,
+            executableURL: executableURL
+        )
+        guard case .installed = state else { return XCTFail("expected the link to be created, got \(state)") }
+        XCTAssertTrue(fileManager.fileExists(atPath: linkURL.path))
+    }
+
+    /// Turning the command off is a decision, and a relaunch must not undo it.
+    func testLaunchRespectsSomeoneWhoTurnedTheCommandOff() {
+        let state = CLIInstaller.linkOnLaunch(
+            declined: true,
+            homeDirectory: homeDirectory.path,
+            executableURL: executableURL
+        )
+        guard case .absent = state else { return XCTFail("expected no link, got \(state)") }
+        XCTAssertFalse(fileManager.fileExists(atPath: linkURL.path))
+    }
+
+    func testLaunchLeavesSomethingElseAtThePathAlone() throws {
+        try fileManager.createDirectory(
+            at: CLIInstaller.binDirectory(homeDirectory: homeDirectory.path),
+            withIntermediateDirectories: true
+        )
+        try Data("someone else".utf8).write(to: linkURL)
+
+        let state = CLIInstaller.linkOnLaunch(
+            declined: false,
+            homeDirectory: homeDirectory.path,
+            executableURL: executableURL
+        )
+        XCTAssertEqual(state, .conflict)
+        XCTAssertEqual(try Data(contentsOf: linkURL), Data("someone else".utf8))
+    }
+
+    /// Running from a disk image would leave a link pointing at a volume that
+    /// disappears on eject.
+    func testLaunchDoesNotLinkFromAnUnstableLocation() {
+        let mounted = URL(fileURLWithPath: "/Volumes/Searoom/Searoom.app/Contents/MacOS/Searoom")
+        let state = CLIInstaller.linkOnLaunch(
+            declined: false,
+            homeDirectory: homeDirectory.path,
+            executableURL: mounted
+        )
+        guard case .unstableLocation = state else { return XCTFail("expected unstableLocation, got \(state)") }
+        XCTAssertFalse(fileManager.fileExists(atPath: linkURL.path))
+    }
+
+    // MARK: - A command installed by something else
+
+    /// Homebrew's cask links `searoom` into its own bin directory. Without
+    /// this the toggle would report the command missing while it sits working
+    /// in the user's shell.
+    func testACommandLinkedElsewhereOnPathIsRecognised() throws {
+        let brewBin = homeDirectory.appendingPathComponent("brew/bin", isDirectory: true)
+        try fileManager.createDirectory(at: brewBin, withIntermediateDirectories: true)
+        let brewLink = brewBin.appendingPathComponent("searoom")
+        try fileManager.createSymbolicLink(at: brewLink, withDestinationURL: executableURL)
+
+        let found = CLIInstaller.externalCommand(
+            on: [brewBin.path, "/usr/bin"],
+            excluding: linkURL,
+            executableURL: executableURL
+        )
+        XCTAssertEqual(found, brewLink.path)
+    }
+
+    func testACommandOnPathPointingAtADifferentAppIsNotOurs() throws {
+        let otherBin = homeDirectory.appendingPathComponent("other/bin", isDirectory: true)
+        try fileManager.createDirectory(at: otherBin, withIntermediateDirectories: true)
+        let stranger = otherBin.appendingPathComponent("searoom")
+        try Data("a different program".utf8).write(to: stranger)
+
+        XCTAssertNil(
+            CLIInstaller.externalCommand(
+                on: [otherBin.path],
+                excluding: linkURL,
+                executableURL: executableURL
+            )
+        )
+    }
+
+    /// Our own link must not be mistaken for someone else's.
+    func testOurOwnLinkIsNotReportedAsExternal() throws {
+        _ = install()
+        XCTAssertNil(
+            CLIInstaller.externalCommand(
+                on: [CLIInstaller.binDirectory(homeDirectory: homeDirectory.path).path],
+                excluding: linkURL,
+                executableURL: executableURL
+            )
+        )
+    }
 }

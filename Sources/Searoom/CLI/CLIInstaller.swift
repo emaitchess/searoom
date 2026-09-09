@@ -163,6 +163,10 @@ enum CLIInstaller {
     enum InstallState: Equatable {
         /// A Searoom-owned link exists and points at the app.
         case installed(pathVisible: Bool)
+        /// Something else on PATH already resolves to this app — Homebrew's
+        /// `bin` link is the usual one. The command works and is not ours to
+        /// remove, so the toggle reports it rather than offering to undo it.
+        case managedExternally(path: String)
         /// Nothing at the link path.
         case absent(pathVisible: Bool)
         /// A regular file or an unrelated symlink occupies the link path.
@@ -183,11 +187,19 @@ enum CLIInstaller {
             return .unstableLocation(reason: reason)
         }
         let link = linkURL(homeDirectory: homeDirectory)
-        let pathVisible = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+        let searchPaths = (ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":", omittingEmptySubsequences: false)
             .map(String.init)
-            .contains(binDirectory(homeDirectory: homeDirectory).path)
+        let pathVisible = searchPaths.contains(binDirectory(homeDirectory: homeDirectory).path)
         guard fileManager.fileExists(atPath: link.path) else {
+            if let external = externalCommand(
+                on: searchPaths,
+                excluding: link,
+                executableURL: executableURL,
+                fileManager: fileManager
+            ) {
+                return .managedExternally(path: external)
+            }
             return .absent(pathVisible: pathVisible)
         }
         guard let existing = existingLinkTarget(link, fileManager: fileManager) else {
@@ -197,6 +209,62 @@ enum CLIInstaller {
             return .conflict
         }
         return .installed(pathVisible: pathVisible)
+    }
+
+    /// A `searoom` somewhere on PATH that resolves to this same executable but
+    /// is not our link. Homebrew's cask creates exactly this, and without the
+    /// check a Homebrew user would be told the command is not installed while
+    /// it sits working in their shell.
+    static func externalCommand(
+        on searchPaths: [String],
+        excluding link: URL,
+        executableURL: URL,
+        fileManager: FileManager = .default
+    ) -> String? {
+        let target = executableURL.resolvingSymlinksInPath().standardizedFileURL.path
+        for directory in searchPaths where !directory.isEmpty {
+            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
+                .appendingPathComponent("searoom")
+            guard candidate.standardizedFileURL != link.standardizedFileURL,
+                  fileManager.fileExists(atPath: candidate.path) else { continue }
+            if candidate.resolvingSymlinksInPath().standardizedFileURL.path == target {
+                return candidate.path
+            }
+        }
+        return nil
+    }
+
+    // MARK: - First launch
+
+    /// Links the command at launch so it is there the first time someone opens
+    /// a terminal, rather than waiting to be found in Settings. Silent by
+    /// design: it creates one symlink in the user's own directory, and does
+    /// nothing at all when the command already works, when something is in the
+    /// way, when the app is running from a disk image, or when the user has
+    /// turned it off.
+    @discardableResult
+    static func linkOnLaunch(
+        declined: Bool,
+        homeDirectory: String = NSHomeDirectory(),
+        executableURL: URL = currentExecutableURL(),
+        fileManager: FileManager = .default
+    ) -> InstallState {
+        let current = state(
+            homeDirectory: homeDirectory,
+            executableURL: executableURL,
+            fileManager: fileManager
+        )
+        guard !declined, case .absent = current else { return current }
+        _ = install(
+            homeDirectory: homeDirectory,
+            executableURL: executableURL,
+            fileManager: fileManager
+        )
+        return state(
+            homeDirectory: homeDirectory,
+            executableURL: executableURL,
+            fileManager: fileManager
+        )
     }
 
     // MARK: - Command entry points

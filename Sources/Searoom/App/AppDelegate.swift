@@ -62,6 +62,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             _ = shortcutManager.register(shortcut)
         }
         startSampling()
+        // The command should be there the first time someone opens a terminal,
+        // not waiting to be discovered in Settings. One symlink in the user's
+        // own directory, off the main thread because it touches the disk, and
+        // a no-op when the command already works, something is in the way, or
+        // the user has turned it off.
+        let declinedCLILink = model.settings.cliLinkDeclined
+        DispatchQueue.global(qos: .utility).async {
+            CLIInstaller.linkOnLaunch(declined: declinedCLILink)
+        }
         DispatchQueue.main.async { [weak self] in
             self?.presentLaunchAtLoginPromptIfNeeded()
         }

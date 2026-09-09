@@ -160,6 +160,10 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// Trackpad feedback on the controls and gestures that have detents. On by
     /// default, and a no-op anyway without a Force Touch trackpad.
     var hapticsEnabled: Bool
+    /// Records that the user turned the `searoom` command off, so first-launch
+    /// linking does not quietly put it back. This is a decision, not a mirror
+    /// of the filesystem: whether the command exists is always read from disk.
+    var cliLinkDeclined: Bool
 
     init(
         sampleInterval: TimeInterval = 2,
@@ -169,7 +173,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         menuBarLayout: MenuBarLayout = .stacked,
         dashboardSectionOrder: [DashboardSection] = DashboardSection.defaults,
         hasCompletedLaunchAtLoginPrompt: Bool = false,
-        hapticsEnabled: Bool = true
+        hapticsEnabled: Bool = true,
+        cliLinkDeclined: Bool = false
     ) {
         self.sampleInterval = sampleInterval
         self.historyMinutes = historyMinutes
@@ -179,6 +184,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         self.dashboardSectionOrder = DashboardSection.normalized(dashboardSectionOrder)
         self.hasCompletedLaunchAtLoginPrompt = hasCompletedLaunchAtLoginPrompt
         self.hapticsEnabled = hapticsEnabled
+        self.cliLinkDeclined = cliLinkDeclined
         normalize()
     }
 
@@ -219,6 +225,9 @@ struct AppSettings: Codable, Equatable, Sendable {
         // Absent in settings written before the toggle existed, which should
         // keep the feedback they already had rather than silently losing it.
         hapticsEnabled = try values.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? true
+        // Absent means the user has never turned the command off, so an
+        // upgrade from a build without the toggle is free to link it.
+        cliLinkDeclined = try values.decodeIfPresent(Bool.self, forKey: .cliLinkDeclined) ?? false
         normalize()
     }
 
@@ -241,6 +250,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         try values.encode(dashboardSectionOrder, forKey: .dashboardSectionOrder)
         try values.encode(hasCompletedLaunchAtLoginPrompt, forKey: .hasCompletedLaunchAtLoginPrompt)
         try values.encode(hapticsEnabled, forKey: .hapticsEnabled)
+        try values.encode(cliLinkDeclined, forKey: .cliLinkDeclined)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -255,6 +265,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case customMenuBarMetrics
         case hasCompletedLaunchAtLoginPrompt
         case hapticsEnabled
+        case cliLinkDeclined
     }
 }
 

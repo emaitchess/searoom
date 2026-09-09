@@ -29,8 +29,16 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let shortcutError = NSTextField(labelWithString: "")
     private let launchButton = NSButton(checkboxWithTitle: "Launch Searoom at login", target: nil, action: nil)
     private let hapticsButton = NSButton(checkboxWithTitle: "Trackpad feedback", target: nil, action: nil)
-    private let cliInstallButton = NSButton(title: "Install Command", target: nil, action: nil)
-    private let cliRemoveButton = NSButton(title: "Remove Command", target: nil, action: nil)
+    private let cliToggle = NSButton(
+        checkboxWithTitle: "Enable the searoom command",
+        target: nil,
+        action: nil
+    )
+    private let agentSkillButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let agentSkillStatusLabel = NSTextField(labelWithString: "")
+    /// Held so the whole row can be hidden while the command is off: a skill
+    /// that tells a model to run `searoom` is useless without the command.
+    private var agentSkillRow: NSGridRow?
     private let cliStatusLabel = NSTextField(labelWithString: "")
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
     private let updatesButton = NSButton(title: "Check for Updates", target: nil, action: nil)
@@ -71,6 +79,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func show() {
+        // The subtitle is replaced by the result of the last skill action, so
+        // reopening Settings puts the explanation back.
+        resetAgentSkillSubtitle()
         syncFromModel()
         showWindow(nil)
         window?.orderFrontRegardless()
@@ -261,35 +272,37 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         resetHistoryButton.target = self
         resetHistoryButton.action = #selector(resetHistory)
         resetHistoryButton.setAccessibilityLabel("Reset saved trend history")
-        cliInstallButton.bezelStyle = .rounded
-        cliInstallButton.controlSize = .small
-        cliInstallButton.target = self
-        cliInstallButton.action = #selector(installCLICommand)
-        cliInstallButton.setAccessibilityLabel("Install the searoom terminal command")
-        cliInstallButton.setAccessibilityHelp(
+        cliToggle.target = self
+        cliToggle.action = #selector(toggleCLICommand)
+        cliToggle.setAccessibilityLabel("Enable the searoom terminal command")
+        cliToggle.setAccessibilityHelp(
             "Creates ~/.local/bin/searoom as a symlink to this app. Edits nothing else."
-        )
-        cliRemoveButton.bezelStyle = .rounded
-        cliRemoveButton.controlSize = .small
-        cliRemoveButton.target = self
-        cliRemoveButton.action = #selector(removeCLICommand)
-        cliRemoveButton.setAccessibilityLabel("Remove the searoom terminal command")
-        cliRemoveButton.setAccessibilityHelp(
-            "Removes ~/.local/bin/searoom only when it points at this app."
         )
         cliStatusLabel.font = SearoomFont.system(10)
         cliStatusLabel.textColor = .secondaryLabelColor
         cliStatusLabel.lineBreakMode = .byTruncatingTail
         cliStatusLabel.setAccessibilityLabel("Terminal command status")
-        let cliButtons = NSStackView(views: [cliInstallButton, cliRemoveButton])
-        cliButtons.orientation = .horizontal
-        cliButtons.alignment = .centerY
-        cliButtons.spacing = 6
-        let cliGroup = NSStackView(views: [cliButtons, cliStatusLabel])
+        let cliGroup = NSStackView(views: [cliToggle, cliStatusLabel])
         cliGroup.orientation = .vertical
         cliGroup.alignment = .leading
         cliGroup.spacing = 4
         cliGroup.toolTip = "Exposes the lowercase searoom command for terminal and agent use."
+
+        agentSkillButton.bezelStyle = .rounded
+        agentSkillButton.controlSize = .small
+        agentSkillButton.setAccessibilityLabel("Add the Searoom skill to a coding agent")
+        agentSkillStatusLabel.font = SearoomFont.system(10)
+        agentSkillStatusLabel.textColor = .secondaryLabelColor
+        agentSkillStatusLabel.lineBreakMode = .byTruncatingTail
+        agentSkillStatusLabel.stringValue =
+            "Teach coding agents when and how to use the Searoom CLI."
+        agentSkillStatusLabel.setAccessibilityLabel("Agent skill status")
+        let agentSkillGroup = NSStackView(views: [agentSkillButton, agentSkillStatusLabel])
+        agentSkillGroup.orientation = .vertical
+        agentSkillGroup.alignment = .leading
+        agentSkillGroup.spacing = 4
+        agentSkillGroup.toolTip =
+            "Writes one SKILL.md into each agent's own skills folder. Nothing else is changed."
         updatesButton.bezelStyle = .rounded
         updatesButton.controlSize = .small
         updatesButton.target = self
@@ -353,8 +366,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalGroup],
             [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyGroup],
             [makeLabel("TERMINAL COMMAND", size: 10, color: .secondaryLabelColor), cliGroup],
+            [makeLabel("AGENT SKILLS", size: 10, color: .secondaryLabelColor), agentSkillGroup],
             [makeLabel("CARD ORDER", size: 10, color: .secondaryLabelColor), orderGroup]
         ])
+        agentSkillRow = grid.row(at: 6)
         grid.rowSpacing = 14
         grid.columnSpacing = 24
         grid.column(at: 0).xPlacement = .leading
@@ -534,41 +549,119 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         if tableView === metricTable { syncMetricControls() } else { syncOrderButtons() }
     }
 
-    /// Reports installed, absent, conflict, unstable-location, and
+    /// Drives the toggle from the filesystem rather than from a stored flag,
+    /// so what it shows is what a terminal would find. Reports installed,
+    /// externally managed, absent, conflict, unstable-location, and
     /// PATH-visibility states without changing anything.
     private func syncCLIControls() {
+        var enabled = false
         switch CLIInstaller.state() {
         case .installed(let pathVisible):
+            enabled = true
+            cliToggle.isEnabled = true
             cliStatusLabel.stringValue = pathVisible
-                ? "Installed: ~/.local/bin/searoom is on PATH"
-                : "Installed at ~/.local/bin/searoom; that folder is not on PATH yet"
-            cliInstallButton.isEnabled = !pathVisible
-            cliRemoveButton.isEnabled = true
+                ? "On. ~/.local/bin/searoom is on your PATH."
+                : "On, but ~/.local/bin is not on your PATH yet, so the shell cannot find it."
+        case .managedExternally(let path):
+            enabled = true
+            // Homebrew's link is not ours to remove, so the toggle reports it
+            // rather than offering an off switch that would not work.
+            cliToggle.isEnabled = false
+            cliStatusLabel.stringValue = "On, provided by \(path). Manage it where it was installed."
         case .absent:
-            cliStatusLabel.stringValue = "Not installed. The command also installs automatically with Homebrew."
-            cliInstallButton.isEnabled = true
-            cliRemoveButton.isEnabled = false
+            cliToggle.isEnabled = true
+            cliStatusLabel.stringValue = "Off. Turning it on creates ~/.local/bin/searoom."
         case .conflict:
-            cliStatusLabel.stringValue = "Conflict: ~/.local/bin/searoom exists and is not Searoom's link"
-            cliInstallButton.isEnabled = false
-            cliRemoveButton.isEnabled = false
+            cliToggle.isEnabled = false
+            cliStatusLabel.stringValue = "~/.local/bin/searoom exists and is not Searoom's link."
         case .unstableLocation(let reason):
+            cliToggle.isEnabled = false
             cliStatusLabel.stringValue = reason
-            cliInstallButton.isEnabled = false
-            cliRemoveButton.isEnabled = false
         }
+        cliToggle.state = enabled ? .on : .off
+        syncAgentSkillControls(commandEnabled: enabled)
     }
 
-    @objc private func installCLICommand() {
-        let outcome = CLIInstaller.install()
+    /// The skill tells an agent to run `searoom`, so the row only exists while
+    /// the command does. Each agent is a checkable item: on installs, off
+    /// removes, and a dash means the file is there but is not this version.
+    private func syncAgentSkillControls(commandEnabled: Bool) {
+        agentSkillRow?.isHidden = !commandEnabled
+        guard commandEnabled else { return }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        // A pull-down menu shows item zero as its title and never selects it.
+        menu.addItem(withTitle: "Add skill to…", action: nil, keyEquivalent: "")
+        let everywhere = NSMenuItem(
+            title: "Install to all agents",
+            action: #selector(installAgentSkillEverywhere),
+            keyEquivalent: ""
+        )
+        everywhere.target = self
+        menu.addItem(everywhere)
+        menu.addItem(.separator())
+        for (index, target) in AgentSkillInstaller.targets.enumerated() {
+            let item = NSMenuItem(
+                title: target.displayName,
+                action: #selector(toggleAgentSkill(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.tag = index
+            switch AgentSkillInstaller.state(for: target) {
+            case .current:
+                item.state = .on
+            case .outdated:
+                item.state = .mixed
+            case .absent:
+                item.state = .off
+            case .blocked(let reason):
+                item.state = .off
+                item.isEnabled = false
+                item.toolTip = reason
+            }
+            menu.addItem(item)
+        }
+        agentSkillButton.menu = menu
+    }
+
+    private func resetAgentSkillSubtitle() {
+        agentSkillStatusLabel.stringValue =
+            "Teach coding agents when and how to use the Searoom CLI."
+    }
+
+    @objc private func toggleCLICommand() {
+        let turningOn = cliToggle.state == .on
+        let outcome = turningOn ? CLIInstaller.install() : CLIInstaller.uninstall()
         cliStatusLabel.stringValue = outcome.message
+        // Records the decision, so first-launch linking does not put the
+        // command back after someone has deliberately turned it off.
+        model.updateSettings { $0.cliLinkDeclined = !turningOn }
         Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
         syncCLIControls()
     }
 
-    @objc private func removeCLICommand() {
-        let outcome = CLIInstaller.uninstall()
-        cliStatusLabel.stringValue = outcome.message
+    @objc private func toggleAgentSkill(_ sender: NSMenuItem) {
+        guard AgentSkillInstaller.targets.indices.contains(sender.tag) else { return }
+        let target = AgentSkillInstaller.targets[sender.tag]
+        let outcome: AgentSkillInstaller.Outcome
+        switch AgentSkillInstaller.state(for: target) {
+        case .current:
+            outcome = AgentSkillInstaller.remove(target)
+        case .outdated, .absent:
+            outcome = AgentSkillInstaller.install(target)
+        case .blocked(let reason):
+            outcome = AgentSkillInstaller.Outcome(installed: false, message: reason)
+        }
+        agentSkillStatusLabel.stringValue = outcome.message
+        Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
+        syncCLIControls()
+    }
+
+    @objc private func installAgentSkillEverywhere() {
+        let outcome = AgentSkillInstaller.installAll()
+        agentSkillStatusLabel.stringValue = outcome.message
+        Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
         syncCLIControls()
     }
 

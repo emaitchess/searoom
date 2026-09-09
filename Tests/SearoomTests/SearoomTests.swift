@@ -355,6 +355,24 @@ final class SearoomTests: XCTestCase {
         XCTAssertTrue(settings.hapticsEnabled)
     }
 
+    func testTurningTheCommandOffIsRememberedAcrossLaunches() throws {
+        // The default has to be false, or an upgrade would treat every
+        // existing user as having declined and never link the command.
+        XCTAssertFalse(AppSettings().cliLinkDeclined)
+
+        var settings = AppSettings()
+        settings.cliLinkDeclined = true
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertTrue(decoded.cliLinkDeclined, "a deliberate off must survive a relaunch")
+    }
+
+    func testSettingsWrittenBeforeTheCommandToggleAllowLinking() throws {
+        let legacy = Data("{\"sampleInterval\":2,\"historyMinutes\":30}".utf8)
+        let settings = try JSONDecoder().decode(AppSettings.self, from: legacy)
+        XCTAssertFalse(settings.cliLinkDeclined)
+    }
+
     func testSampleRateOffersEveryWholeSecondFromOneToTen() {
         let values = AppSettings.supportedSampleIntervals
         XCTAssertEqual(values.count, 10)
