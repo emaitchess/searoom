@@ -96,7 +96,7 @@ final class AgentSkillInstallerTests: XCTestCase {
         let opencode = try target("opencode")
         let outcome = AgentSkillInstaller.remove(opencode, homeDirectory: home.path)
         XCTAssertFalse(outcome.installed)
-        XCTAssertTrue(outcome.message.contains("not installed"))
+        XCTAssertTrue(outcome.message.hasPrefix("Not installed"), outcome.message)
     }
 
     func testADirectoryInTheFilesPlaceIsRefusedRatherThanReplaced() throws {

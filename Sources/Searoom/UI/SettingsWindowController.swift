@@ -31,9 +31,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let cliToggle = NSSwitch()
     private let agentSkillButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let agentSkillStatusLabel = NSTextField(labelWithString: "")
-    /// Held so the whole row can be hidden while the command is off: a skill
-    /// that tells a model to run `searoom` is useless without the command.
-    private var agentSkillRow: NSGridRow?
     private weak var pageScrollView: NSScrollView?
     private let cliStatusLabel = NSTextField(labelWithString: "")
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
@@ -75,9 +72,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func show() {
-        // The subtitle is replaced by the result of the last skill action, so
-        // reopening Settings puts the explanation back.
-        resetAgentSkillSubtitle()
         syncFromModel()
         // Reopening should show the top of the page, not wherever it was left.
         pageScrollView?.documentView?.scroll(.zero)
@@ -298,6 +292,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         cliStatusLabel.font = SearoomFont.system(10)
         cliStatusLabel.textColor = .secondaryLabelColor
         cliStatusLabel.lineBreakMode = .byTruncatingTail
+        cliStatusLabel.alignment = .right
+        cliStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         cliStatusLabel.setAccessibilityLabel("Terminal command status")
         // The switch is pushed to the trailing edge so the row reads as a
         // label and a toggle; the status line only appears when it has
@@ -329,13 +325,31 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         agentSkillStatusLabel.font = SearoomFont.system(10)
         agentSkillStatusLabel.textColor = .secondaryLabelColor
         agentSkillStatusLabel.lineBreakMode = .byTruncatingTail
-        agentSkillStatusLabel.stringValue =
-            "Teach coding agents when and how to use the Searoom CLI."
+        // Aligned under the control it describes, and allowed to truncate: a
+        // status line is not entitled to decide how wide the window is.
+        agentSkillStatusLabel.alignment = .right
+        agentSkillStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         agentSkillStatusLabel.setAccessibilityLabel("Agent skill status")
-        let agentSkillGroup = NSStackView(views: [agentSkillButton, agentSkillStatusLabel])
+        // The pull-down sits on the trailing edge with the switches above it,
+        // so the controls in this column line up on one edge instead of each
+        // starting wherever its own width happens to begin.
+        let agentSkillSpacer = NSView()
+        agentSkillSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        agentSkillSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let agentSkillRowStack = NSStackView(views: [agentSkillSpacer, agentSkillButton])
+        agentSkillRowStack.orientation = .horizontal
+        agentSkillRowStack.alignment = .centerY
+        let agentSkillGroup = NSStackView(views: [agentSkillRowStack, agentSkillStatusLabel])
         agentSkillGroup.orientation = .vertical
         agentSkillGroup.alignment = .leading
         agentSkillGroup.spacing = 4
+        // Fixed heights, because this row must not change size when the
+        // command is switched on or off; everything below it would move.
+        NSLayoutConstraint.activate([
+            agentSkillRowStack.widthAnchor.constraint(equalTo: agentSkillGroup.widthAnchor),
+            agentSkillStatusLabel.widthAnchor.constraint(equalTo: agentSkillGroup.widthAnchor),
+            agentSkillStatusLabel.heightAnchor.constraint(equalToConstant: 13)
+        ])
         agentSkillGroup.toolTip =
             "Writes one SKILL.md into each agent's own skills folder. Nothing else is changed."
         updatesButton.bezelStyle = .rounded
@@ -433,12 +447,10 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
         var gridRows: [[NSView]] = []
         var headerRowIndices: [Int] = []
-        var agentSkillRowIndex: Int?
         for (title, rows) in sections {
             headerRowIndices.append(gridRows.count)
             gridRows.append([makeSectionHeader(title), NSGridCell.emptyContentView])
             for (label, control) in rows {
-                if label == agentSkillRowLabel { agentSkillRowIndex = gridRows.count }
                 gridRows.append([makeLabel(label, size: 10, color: .secondaryLabelColor), control])
             }
         }
@@ -454,7 +466,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             // Sections need air above them, but not before the first one.
             if index > 0 { grid.row(at: index).topPadding = 10 }
         }
-        if let agentSkillRowIndex { agentSkillRow = grid.row(at: agentSkillRowIndex) }
         grid.rowSpacing = 8
         grid.columnSpacing = 18
         grid.column(at: 0).xPlacement = .leading
@@ -652,12 +663,25 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         syncAgentSkillControls(commandEnabled: enabled)
     }
 
-    /// The skill tells an agent to run `searoom`, so the row only exists while
-    /// the command does. Each agent is a checkable item: on installs, off
-    /// removes, and a dash means the file is there but is not this version.
+    /// The skill tells an agent to run `searoom`, so it is only offered while
+    /// the command exists. The row keeps its place either way: removing it
+    /// would move every row below it the moment the switch above was clicked,
+    /// and a settings page that rearranges itself under the control you just
+    /// touched is worse than a control that is visibly unavailable.
+    ///
+    /// Each agent is a checkable item: on installs, off removes, and a dash
+    /// means the file is there but is not this version.
     private func syncAgentSkillControls(commandEnabled: Bool) {
-        agentSkillRow?.isHidden = !commandEnabled
-        guard commandEnabled else { return }
+        agentSkillButton.isEnabled = commandEnabled
+        agentSkillStatusLabel.textColor = commandEnabled ? .secondaryLabelColor : .tertiaryLabelColor
+        guard commandEnabled else {
+            agentSkillStatusLabel.stringValue = "Needs the searoom command."
+            let placeholder = NSMenu()
+            placeholder.addItem(withTitle: "Add skill to…", action: nil, keyEquivalent: "")
+            agentSkillButton.menu = placeholder
+            return
+        }
+        agentSkillStatusLabel.stringValue = agentSkillSummary()
         let menu = NSMenu()
         menu.autoenablesItems = false
         // A pull-down menu shows item zero as its title and never selects it.
@@ -695,9 +719,38 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         agentSkillButton.menu = menu
     }
 
-    private func resetAgentSkillSubtitle() {
-        agentSkillStatusLabel.stringValue =
-            "Teach coding agents when and how to use the Searoom CLI."
+    /// Reads each agent's folder and says what is actually there, so the line
+    /// is true when Settings opens rather than only after something is
+    /// clicked, and stays true if a skill is removed from outside the app.
+    private func agentSkillSummary() -> String {
+        var installed: [String] = []
+        var outdated: [String] = []
+        for target in AgentSkillInstaller.targets {
+            switch AgentSkillInstaller.state(for: target) {
+            case .current: installed.append(target.displayName)
+            case .outdated: outdated.append(target.displayName)
+            case .absent, .blocked: continue
+            }
+        }
+        if installed.isEmpty, outdated.isEmpty {
+            return "Teach coding agents when and how to use the Searoom CLI."
+        }
+        var parts: [String] = []
+        if !installed.isEmpty {
+            parts.append("Installed for \(Self.list(installed))")
+        }
+        if !outdated.isEmpty {
+            let lead = installed.isEmpty ? "Needs updating for" : "needs updating for"
+            parts.append("\(lead) \(Self.list(outdated))")
+        }
+        return parts.joined(separator: "; ") + "."
+    }
+
+    /// "Cursor", "Cursor and Codex", "Cursor, Codex and OpenCode".
+    private static func list(_ names: [String]) -> String {
+        guard let last = names.last else { return "" }
+        guard names.count > 1 else { return last }
+        return names.dropLast().joined(separator: ", ") + " and " + last
     }
 
     @objc private func toggleCLICommand() {
@@ -734,16 +787,18 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         case .blocked(let reason):
             outcome = AgentSkillInstaller.Outcome(installed: false, message: reason)
         }
-        agentSkillStatusLabel.stringValue = outcome.message
         Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
         syncCLIControls()
+        if !outcome.installed, case .blocked = AgentSkillInstaller.state(for: target) {
+            agentSkillStatusLabel.stringValue = outcome.message
+        }
     }
 
     @objc private func installAgentSkillEverywhere() {
         let outcome = AgentSkillInstaller.installAll()
-        agentSkillStatusLabel.stringValue = outcome.message
         Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
         syncCLIControls()
+        if !outcome.installed { agentSkillStatusLabel.stringValue = outcome.message }
     }
 
     private func applyMenuBarMetrics(_ metrics: [MenuBarMetric], select row: Int?) {

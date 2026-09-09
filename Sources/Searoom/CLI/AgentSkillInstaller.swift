@@ -132,7 +132,7 @@ enum AgentSkillInstaller {
         do {
             data = try bundledSkill(bundle: bundle)
         } catch {
-            return Outcome(installed: false, message: "cannot read the bundled skill")
+            return Outcome(installed: false, message: "Cannot read the bundled skill")
         }
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
@@ -144,7 +144,7 @@ enum AgentSkillInstaller {
         } catch {
             return Outcome(installed: false, message: "cannot write \(url.path): \(error.localizedDescription)")
         }
-        return Outcome(installed: true, message: "installed for \(target.displayName)")
+        return Outcome(installed: true, message: "Installed for \(target.displayName)")
     }
 
     @discardableResult
@@ -156,7 +156,7 @@ enum AgentSkillInstaller {
         let directory = skillDirectory(for: target, homeDirectory: homeDirectory)
         let url = skillURL(for: target, homeDirectory: homeDirectory)
         guard fileManager.fileExists(atPath: url.path) else {
-            return Outcome(installed: false, message: "not installed for \(target.displayName)")
+            return Outcome(installed: false, message: "Not installed for \(target.displayName)")
         }
         do {
             try fileManager.removeItem(at: url)
@@ -168,7 +168,7 @@ enum AgentSkillInstaller {
         } catch {
             return Outcome(installed: false, message: "cannot remove \(url.path): \(error.localizedDescription)")
         }
-        return Outcome(installed: false, message: "removed from \(target.displayName)")
+        return Outcome(installed: false, message: "Removed from \(target.displayName)")
     }
 
     /// Installs for every target and summarises what happened, so one action
@@ -189,14 +189,14 @@ enum AgentSkillInstaller {
             }
         }
         if failed.isEmpty {
-            return Outcome(installed: true, message: "installed for \(succeeded.joined(separator: ", "))")
+            return Outcome(installed: true, message: "Installed for \(succeeded.joined(separator: ", "))")
         }
         if succeeded.isEmpty {
-            return Outcome(installed: false, message: "could not install for \(failed.joined(separator: ", "))")
+            return Outcome(installed: false, message: "Could not install for \(failed.joined(separator: ", "))")
         }
         return Outcome(
             installed: true,
-            message: "installed for \(succeeded.joined(separator: ", ")); failed for \(failed.joined(separator: ", "))"
+            message: "Installed for \(succeeded.joined(separator: ", ")); failed for \(failed.joined(separator: ", "))"
         )
     }
 }

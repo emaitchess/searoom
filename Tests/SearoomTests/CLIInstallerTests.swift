@@ -396,4 +396,19 @@ final class CLIInstallerTests: XCTestCase {
         XCTAssertEqual(changed, [bashrc])
         XCTAssertFalse(try String(contentsOf: bashrc, encoding: .utf8).contains("$HOME/.local/bin"))
     }
+
+    /// A Finder-launched app's PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, which
+    /// is why the package managers' directories have to be looked for by name.
+    func testTheSearchPathIncludesPackageManagerDirectories() {
+        let minimal = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        let paths = CLIInstaller.commandSearchPaths(environment: minimal)
+        XCTAssertTrue(paths.contains("/opt/homebrew/bin"))
+        XCTAssertTrue(paths.contains("/usr/local/bin"))
+    }
+
+    func testTheSearchPathDoesNotRepeatADirectoryAlreadyOnPath() {
+        let withBrew = ["PATH": "/opt/homebrew/bin:/usr/bin"]
+        let paths = CLIInstaller.commandSearchPaths(environment: withBrew)
+        XCTAssertEqual(paths.filter { $0 == "/opt/homebrew/bin" }.count, 1)
+    }
 }

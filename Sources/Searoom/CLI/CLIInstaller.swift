@@ -194,9 +194,7 @@ enum CLIInstaller {
             return .unstableLocation(reason: reason)
         }
         let link = linkURL(homeDirectory: homeDirectory)
-        let searchPaths = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":", omittingEmptySubsequences: false)
-            .map(String.init)
+        let searchPaths = commandSearchPaths()
         let pathVisible = binDirectoryOnPath(homeDirectory: homeDirectory, fileManager: fileManager)
         guard fileManager.fileExists(atPath: link.path) else {
             if let external = externalCommand(
@@ -216,6 +214,21 @@ enum CLIInstaller {
             return .conflict
         }
         return .installed(pathVisible: pathVisible)
+    }
+
+    /// Where to look for a command someone else installed. A GUI app launched
+    /// from Finder inherits a minimal PATH that has never seen a shell profile,
+    /// so the package managers' own directories are checked by name as well;
+    /// without that, a Homebrew user would be told the command was missing and
+    /// handed a second, redundant link in `~/.local/bin`.
+    static func commandSearchPaths(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String] {
+        let fromPath = (environment["PATH"] ?? "")
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .map(String.init)
+        let wellKnown = ["/opt/homebrew/bin", "/usr/local/bin"]
+        return fromPath + wellKnown.filter { !fromPath.contains($0) }
     }
 
     /// A `searoom` somewhere on PATH that resolves to this same executable but
