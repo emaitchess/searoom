@@ -53,6 +53,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bar. The shortcut is handled by the window itself, because an accessory app
   installs no menu bar and `NSApp.mainMenu` key equivalents are never matched:
   the Quit item's Command-Q has never fired either.
+- The Searoom CLI status line no longer appears and disappears. It reports
+  states only some machines reach, a Homebrew-provided command or a conflicting
+  file, and letting it come and go resized the window under the switch that had
+  just been clicked. It now holds one line whether or not it has something to
+  say.
 - The menu-bar preview is gone from Settings. The stacked and inline layouts
   have different natural sizes, so switching between them resized the window
   and the whole page appeared to jump. The menu bar itself now updates the

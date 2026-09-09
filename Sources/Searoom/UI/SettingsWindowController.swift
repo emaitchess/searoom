@@ -285,8 +285,17 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         cliRow.alignment = .centerY
         let cliGroup = NSStackView(views: [cliRow, cliStatusLabel])
         cliGroup.orientation = .vertical
-        cliGroup.alignment = .trailing
+        cliGroup.alignment = .leading
         cliGroup.spacing = 4
+        // The status line is always present, even when it says nothing. It
+        // reports states that only some machines ever reach — a Homebrew link,
+        // a conflict — and letting it appear and disappear would resize the
+        // window under the switch that was just clicked.
+        NSLayoutConstraint.activate([
+            cliRow.widthAnchor.constraint(equalTo: cliGroup.widthAnchor),
+            cliStatusLabel.widthAnchor.constraint(equalTo: cliGroup.widthAnchor),
+            cliStatusLabel.heightAnchor.constraint(equalToConstant: 13)
+        ])
         cliGroup.toolTip = "Exposes the lowercase searoom command for terminal and agent use."
 
         agentSkillButton.bezelStyle = .rounded
@@ -618,7 +627,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             cliStatusLabel.stringValue = reason
         }
         cliToggle.state = enabled ? .on : .off
-        cliStatusLabel.isHidden = cliStatusLabel.stringValue.isEmpty
         syncAgentSkillControls(commandEnabled: enabled)
     }
 
@@ -689,7 +697,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         // leaves no trace in that state would otherwise pass silently.
         if outcome.exitCode != 0 {
             cliStatusLabel.stringValue = outcome.message
-            cliStatusLabel.isHidden = false
         }
     }
 
