@@ -91,6 +91,14 @@ jobs:
           "$LINK_DIR/searoom" sample --pretty > /dev/null
           "$LINK_DIR/searoom" watch --count 2 > /dev/null
           "$LINK_DIR/searoom" history --limit 2 > /dev/null
+          # A published build must name itself correctly through the symlink,
+          # because that is how Homebrew and install-cli expose the command and
+          # because searoomVersion appears in every telemetry document.
+          REPORTED="$("$LINK_DIR/searoom" version --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["searoomVersion"])')"
+          if [ "$REPORTED" != "${TAG#v}" ]; then
+            echo "::error::the published CLI reports version $REPORTED through a symlink, expected ${TAG#v}"
+            exit 1
+          fi
 
       - name: Bundled canonical resources match the published bytes
         run: |
