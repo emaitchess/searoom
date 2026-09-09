@@ -32,6 +32,24 @@ When visual rules change, update `DESIGN.md` and run:
 npx --yes @google/design.md lint DESIGN.md
 ```
 
+## CLI verification
+
+Changes to the `searoom` command should pass these before you push:
+
+```sh
+swift test --disable-sandbox
+.build/debug/Searoom help
+.build/debug/Searoom sample --pretty
+.build/debug/Searoom watch --count 2
+.build/debug/Searoom status --pretty
+.build/debug/Searoom history --limit 2 --pretty
+.build/debug/Searoom capabilities --pretty
+.build/debug/Searoom metrics --json
+.build/debug/Searoom schema
+.build/debug/Searoom agent-guide
+.build/debug/Searoom --dump-sample    # legacy shape must stay byte-compatible
+```
+
 ## Expectations
 
 - Keep the runtime dependency-free unless a dependency has a compelling,

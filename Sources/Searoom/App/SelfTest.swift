@@ -277,12 +277,61 @@ enum SelfTest {
         _ = collector.collect()
         Thread.sleep(forTimeInterval: 0.25)
         let sample = collector.collect()
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(sample) else { return false }
+        // The legacy shape is pinned at exactly 41 fields with integer pressure
+        // levels; availability metadata must never leak into it.
+        guard let data = try? LegacyDumpSample.makeJSON(from: sample) else { return false }
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
         return true
+    }
+
+    /// The `searoom self-test` command: the same framework-independent checks
+    /// as the legacy flag, plus bundled CLI resource validation. Runs on the
+    /// main thread (the CLI always starts there) so font registration stays
+    /// on the main actor.
+    static func runCLI() -> Int32 {
+        MainActor.assumeIsolated {
+            SearoomFont.registerBundledFont()
+            var passed = SelfTest.run() && SearoomFont.isDepartureMonoAvailable
+            if !SearoomFont.isDepartureMonoAvailable {
+                fputs("Searoom self-test failed: bundled Departure Mono font\n", stderr)
+            }
+            passed = passed && SelfTest.checkBundledCLIResources()
+            if passed { print("Searoom self-test passed") }
+            return passed ? EXIT_SUCCESS : EXIT_FAILURE
+        }
+    }
+
+    static func checkBundledCLIResources() -> Bool {
+        var failures: [String] = []
+        func bundledURL(_ name: String, _ resourceExtension: String, subdirectory: String?) -> Bool {
+            Bundle.module.url(forResource: name, withExtension: resourceExtension, subdirectory: subdirectory) != nil
+                || Bundle.module.url(forResource: name, withExtension: resourceExtension, subdirectory: nil) != nil
+        }
+        if !bundledURL("telemetry-v1.schema", "json", subdirectory: "CLI") {
+            failures.append("bundled telemetry-v1 schema")
+        }
+        if !bundledURL("metrics", "json", subdirectory: "CLI") {
+            failures.append("bundled metrics catalog")
+        }
+        if !bundledURL("SKILL", "md", subdirectory: "AgentSkills/interpret-searoom-telemetry") {
+            failures.append("bundled agent skill")
+        }
+        if let url = Bundle.module.url(forResource: "metrics", withExtension: "json", subdirectory: "CLI")
+            ?? Bundle.module.url(forResource: "metrics", withExtension: "json", subdirectory: nil),
+           let data = try? Data(contentsOf: url) {
+            if (try? JSONDecoder().decode([MetricDefinitionV1].self, from: data)) == nil {
+                failures.append("bundled metrics catalog does not decode")
+            }
+        }
+        if let url = Bundle.module.url(forResource: "telemetry-v1.schema", withExtension: "json", subdirectory: "CLI")
+            ?? Bundle.module.url(forResource: "telemetry-v1.schema", withExtension: "json", subdirectory: nil),
+           let data = try? Data(contentsOf: url) {
+            if (try? JSONSerialization.jsonObject(with: data)) == nil {
+                failures.append("bundled telemetry schema is not valid JSON")
+            }
+        }
+        for failure in failures { fputs("Searoom self-test failed: \(failure)\n", stderr) }
+        return failures.isEmpty
     }
 }

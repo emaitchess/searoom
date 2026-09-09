@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A first-class `searoom` command line interface, built into the app: the same
+  signed executable gains a lowercase `searoom` mode that prints help with no
+  arguments and exposes `sample`, `watch`, `status`, `history`, `capabilities`,
+  `metrics`, `schema`, `agent-guide`, `version`, `self-test`, `install-cli`,
+  and `uninstall-cli` without launching any UI. Every telemetry and
+  documentation command is read-only and offline; live sampling never writes
+  app history. Homebrew installs link the command automatically; DMG installs
+  can add it rootlessly with `searoom install-cli` or the new Settings control.
+- Versioned telemetry output (schema v1) with UTC RFC 3339 timestamps,
+  stable base units, lowercase pressure levels, and explicit `null` for
+  unavailable readings, plus bundled JSON Schema, metric definitions, and an
+  offline Agent Skill so automation can discover the whole contract without
+  the network.
+- Per-source availability metadata (`available`, `warmingUp`, `unavailable`,
+  `legacyUnknown`) that distinguishes a valid idle zero, a missing rate
+  baseline, and a failed read. Old archives decode as `legacyUnknown` and
+  remain readable.
+- `searoom sample`, `watch`, `status`, and `capabilities` prime their rate
+  baselines before emitting, including one forced second disk read, so the
+  first emitted sample carries meaningful disk I/O instead of a permanent zero.
+
+### Fixed
+
+- A failed disk-IO registry read no longer installs a zero counter baseline,
+  which previously fabricated a false throughput spike on the next successful
+  read. The same protection now covers the sampling process's own CPU baseline.
+
 ## [0.4.0] - 2026-09-08
 
 ### Added

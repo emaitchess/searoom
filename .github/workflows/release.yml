@@ -75,6 +75,33 @@ jobs:
           spctl --assess --type execute --verbose=4 unpacked/Searoom.app
           unpacked/Searoom.app/Contents/MacOS/Searoom --self-test
 
+      - name: The shipped CLI answers from the published ZIP
+        run: |
+          APP_CLI="unpacked/Searoom.app/Contents/MacOS/Searoom"
+          "$APP_CLI" help > /dev/null
+          "$APP_CLI" version > /dev/null
+          "$APP_CLI" schema > /dev/null
+          "$APP_CLI" metrics --json > /dev/null
+          "$APP_CLI" agent-guide > /dev/null
+          "$APP_CLI" --dump-sample > /dev/null
+          LINK_DIR="$(mktemp -d)"
+          APP_PATH="$(cd unpacked/Searoom.app/Contents/MacOS && pwd)/Searoom"
+          ln -s "$APP_PATH" "$LINK_DIR/searoom"
+          "$LINK_DIR/searoom" help > /dev/null
+          "$LINK_DIR/searoom" sample --pretty > /dev/null
+          "$LINK_DIR/searoom" watch --count 2 > /dev/null
+          "$LINK_DIR/searoom" history --limit 2 > /dev/null
+
+      - name: Bundled canonical resources match the published bytes
+        run: |
+          # The website and tap must mirror these bytes; release.sh prints the
+          # handoff checksums from the developer's build. Recompute them from
+          # what actually shipped and keep them visible in this log.
+          shasum -a 256 \
+            unpacked/Searoom.app/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/telemetry-v1.schema.json \
+            unpacked/Searoom.app/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/metrics.json \
+            unpacked/Searoom.app/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/SKILL.md
+
       - name: Published checksums match the published bytes
         run: |
           notes="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"

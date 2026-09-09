@@ -163,6 +163,30 @@ grep -q 'TeamIdentifier=' <<<"$SIGNATURE" \
     || fail "team identifier missing; the app is ad-hoc signed"
 "$APP_PATH/Contents/MacOS/Searoom" --self-test
 
+step "Exercise the packaged CLI"
+# The shipped CLI must work from inside the app bundle before it is published.
+APP_CLI="$APP_PATH/Contents/MacOS/Searoom"
+"$APP_CLI" help > /dev/null
+"$APP_CLI" version > /dev/null
+"$APP_CLI" self-test > /dev/null
+"$APP_CLI" schema > /dev/null
+"$APP_CLI" metrics --json > /dev/null
+"$APP_CLI" agent-guide > /dev/null
+"$APP_CLI" --dump-sample > /dev/null
+
+step "Print Tap and Website handoff checksums"
+# The bundled schema, metric catalog, and Agent Skill are canonical; the tap
+# and website repositories must mirror these bytes exactly. The human-readable
+# metric catalog is rendered from metrics.json by the packaged CLI, so the
+# website mirrors the generated output rather than a second file.
+HANDOFF_DIR="$(mktemp -d)"
+"$APP_CLI" metrics > "$HANDOFF_DIR/metrics.md"
+shasum -a 256 \
+    "$APP_PATH/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/telemetry-v1.schema.json" \
+    "$APP_PATH/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/metrics.json" \
+    "$APP_PATH/Contents/Resources/Searoom_Searoom.bundle/Contents/Resources/SKILL.md" \
+    "$HANDOFF_DIR/metrics.md"
+
 step "Notarize and staple"
 "$SCRIPT_DIR/notarize.sh" "$APP_PATH" "$NOTARY_KEYCHAIN_PROFILE"
 

@@ -29,6 +29,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let shortcutError = NSTextField(labelWithString: "")
     private let launchButton = NSButton(checkboxWithTitle: "Launch Searoom at login", target: nil, action: nil)
     private let hapticsButton = NSButton(checkboxWithTitle: "Trackpad feedback", target: nil, action: nil)
+    private let cliInstallButton = NSButton(title: "Install Command", target: nil, action: nil)
+    private let cliRemoveButton = NSButton(title: "Remove Command", target: nil, action: nil)
+    private let cliStatusLabel = NSTextField(labelWithString: "")
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
     private let updatesButton = NSButton(title: "Check for Updates", target: nil, action: nil)
     private let githubButton = NSButton(title: "GITHUB ↗", target: nil, action: nil)
@@ -258,6 +261,35 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         resetHistoryButton.target = self
         resetHistoryButton.action = #selector(resetHistory)
         resetHistoryButton.setAccessibilityLabel("Reset saved trend history")
+        cliInstallButton.bezelStyle = .rounded
+        cliInstallButton.controlSize = .small
+        cliInstallButton.target = self
+        cliInstallButton.action = #selector(installCLICommand)
+        cliInstallButton.setAccessibilityLabel("Install the searoom terminal command")
+        cliInstallButton.setAccessibilityHelp(
+            "Creates ~/.local/bin/searoom as a symlink to this app. Edits nothing else."
+        )
+        cliRemoveButton.bezelStyle = .rounded
+        cliRemoveButton.controlSize = .small
+        cliRemoveButton.target = self
+        cliRemoveButton.action = #selector(removeCLICommand)
+        cliRemoveButton.setAccessibilityLabel("Remove the searoom terminal command")
+        cliRemoveButton.setAccessibilityHelp(
+            "Removes ~/.local/bin/searoom only when it points at this app."
+        )
+        cliStatusLabel.font = SearoomFont.system(10)
+        cliStatusLabel.textColor = .secondaryLabelColor
+        cliStatusLabel.lineBreakMode = .byTruncatingTail
+        cliStatusLabel.setAccessibilityLabel("Terminal command status")
+        let cliButtons = NSStackView(views: [cliInstallButton, cliRemoveButton])
+        cliButtons.orientation = .horizontal
+        cliButtons.alignment = .centerY
+        cliButtons.spacing = 6
+        let cliGroup = NSStackView(views: [cliButtons, cliStatusLabel])
+        cliGroup.orientation = .vertical
+        cliGroup.alignment = .leading
+        cliGroup.spacing = 4
+        cliGroup.toolTip = "Exposes the lowercase searoom command for terminal and agent use."
         updatesButton.bezelStyle = .rounded
         updatesButton.controlSize = .small
         updatesButton.target = self
@@ -320,6 +352,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             [makeLabel("GLOBAL SHORTCUT", size: 10, color: .secondaryLabelColor), shortcutGroup],
             [makeLabel("SAMPLE RATE", size: 10, color: .secondaryLabelColor), intervalGroup],
             [makeLabel("TREND WINDOW", size: 10, color: .secondaryLabelColor), historyGroup],
+            [makeLabel("TERMINAL COMMAND", size: 10, color: .secondaryLabelColor), cliGroup],
             [makeLabel("CARD ORDER", size: 10, color: .secondaryLabelColor), orderGroup]
         ])
         grid.rowSpacing = 14
@@ -499,6 +532,44 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard let tableView = notification.object as? NSTableView else { return }
         if tableView === metricTable { syncMetricControls() } else { syncOrderButtons() }
+    }
+
+    /// Reports installed, absent, conflict, unstable-location, and
+    /// PATH-visibility states without changing anything.
+    private func syncCLIControls() {
+        switch CLIInstaller.state() {
+        case .installed(let pathVisible):
+            cliStatusLabel.stringValue = pathVisible
+                ? "Installed: ~/.local/bin/searoom is on PATH"
+                : "Installed at ~/.local/bin/searoom; that folder is not on PATH yet"
+            cliInstallButton.isEnabled = !pathVisible
+            cliRemoveButton.isEnabled = true
+        case .absent:
+            cliStatusLabel.stringValue = "Not installed. The command also installs automatically with Homebrew."
+            cliInstallButton.isEnabled = true
+            cliRemoveButton.isEnabled = false
+        case .conflict:
+            cliStatusLabel.stringValue = "Conflict: ~/.local/bin/searoom exists and is not Searoom's link"
+            cliInstallButton.isEnabled = false
+            cliRemoveButton.isEnabled = false
+        case .unstableLocation(let reason):
+            cliStatusLabel.stringValue = reason
+            cliInstallButton.isEnabled = false
+            cliRemoveButton.isEnabled = false
+        }
+    }
+
+    @objc private func installCLICommand() {
+        let outcome = CLIInstaller.install()
+        cliStatusLabel.stringValue = outcome.message
+        Haptics.tap(.generic, enabled: model.settings.hapticsEnabled)
+        syncCLIControls()
+    }
+
+    @objc private func removeCLICommand() {
+        let outcome = CLIInstaller.uninstall()
+        cliStatusLabel.stringValue = outcome.message
+        syncCLIControls()
     }
 
     private func applyMenuBarMetrics(_ metrics: [MenuBarMetric], select row: Int?) {

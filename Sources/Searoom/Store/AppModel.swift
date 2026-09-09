@@ -144,54 +144,32 @@ final class AppModel {
 
 private final class HistoryPersistence: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.searoom.history", qos: .utility)
+    private let store = HistoryArchiveStore(
+        fileURL: HistoryArchiveStore.defaultArchiveURL(),
+        limits: .conservative
+    )
 
     func load(completion: @escaping @MainActor @Sendable ([SystemSample]) -> Void) {
         queue.async {
-            guard let data = try? Data(contentsOf: self.fileURL),
-                  let archive = try? PropertyListDecoder().decode(Archive.self, from: data),
-                  archive.version == 1
-            else {
-                DispatchQueue.main.async { completion([]) }
-                return
+            // Fail closed: every load failure maps to empty history so a
+            // corrupt archive can never prevent launch.
+            let samples: [SystemSample] = switch self.store.load() {
+            case .samples(let samples): samples
+            case .missing, .corrupt, .unsupported, .oversized: []
             }
-            DispatchQueue.main.async { completion(archive.samples) }
+            DispatchQueue.main.async { completion(samples) }
         }
     }
 
     func save(_ samples: [SystemSample]) {
         queue.async {
-            let archive = Archive(version: 1, samples: samples)
-            guard let data = try? PropertyListEncoder.binary.encode(archive) else { return }
-            let directory = self.fileURL.deletingLastPathComponent()
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.write(to: self.fileURL, options: [.atomic])
+            _ = self.store.save(samples)
         }
     }
 
     func clear() {
         queue.async {
-            guard FileManager.default.fileExists(atPath: self.fileURL.path) else { return }
-            try? FileManager.default.removeItem(at: self.fileURL)
+            self.store.clear()
         }
-    }
-
-    private var fileURL: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("Searoom", isDirectory: true)
-            .appendingPathComponent("history.plist")
-    }
-
-    private struct Archive: Codable, Sendable {
-        let version: Int
-        let samples: [SystemSample]
-    }
-}
-
-private extension PropertyListEncoder {
-    static var binary: PropertyListEncoder {
-        let encoder = PropertyListEncoder()
-        encoder.outputFormat = .binary
-        return encoder
     }
 }

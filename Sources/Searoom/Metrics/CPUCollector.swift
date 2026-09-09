@@ -11,11 +11,15 @@ final class CPUCollector {
         let pressure: Double
         let pressureLevel: PressureLevel
         let loadAverage1m: Double
+        let loadAverageAvailable: Bool
         let logicalCPUCount: Int
+        let availability: ReadingAvailability
     }
 
     func read() -> Reading {
-        let usage = readUsage()
+        // Whether a successful baseline exists decides warm-up versus measured.
+        let hadBaseline = previousUsed != nil && previousTotal != nil
+        let usageReading = readUsage()
         var averages = (0.0, 0.0, 0.0)
         let count = withUnsafeMutablePointer(to: &averages) { pointer in
             pointer.withMemoryRebound(to: Double.self, capacity: 3) {
@@ -28,18 +32,23 @@ final class CPUCollector {
         // active CPU time with the normalized run queue and is explicitly labelled
         // as a derived metric in the UI and documentation.
         let normalizedLoad = min(1, loadAverage / Double(logicalCPUCount))
-        let pressure = min(1, max(usage, normalizedLoad))
+        let pressure = min(1, max(usageReading.usage, normalizedLoad))
+        let availability: ReadingAvailability = !usageReading.succeeded
+            ? .unavailable
+            : (hadBaseline ? .available : .warmingUp)
 
         return Reading(
-            usage: usage,
+            usage: usageReading.usage,
             pressure: pressure,
             pressureLevel: PressureLevel.from(utilization: pressure),
             loadAverage1m: loadAverage,
-            logicalCPUCount: logicalCPUCount
+            loadAverageAvailable: count > 0,
+            logicalCPUCount: logicalCPUCount,
+            availability: availability
         )
     }
 
-    private func readUsage() -> Double {
+    private func readUsage() -> (usage: Double, succeeded: Bool) {
         var statistics = host_cpu_load_info()
         var count = mach_msg_type_number_t(
             MemoryLayout<host_cpu_load_info_data_t>.size / MemoryLayout<integer_t>.size
@@ -49,7 +58,7 @@ final class CPUCollector {
                 host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count)
             }
         }
-        guard result == KERN_SUCCESS else { return 0 }
+        guard result == KERN_SUCCESS else { return (0, false) }
 
         let ticks = withUnsafePointer(to: statistics.cpu_ticks) { pointer in
             pointer.withMemoryRebound(to: UInt32.self, capacity: Int(CPU_STATE_MAX)) {
@@ -66,7 +75,7 @@ final class CPUCollector {
             previousUsed = used
             previousTotal = total
         }
-        guard let previousUsed, let previousTotal, total > previousTotal else { return 0 }
-        return min(1, Double(used - previousUsed) / Double(total - previousTotal))
+        guard let previousUsed, let previousTotal, total > previousTotal else { return (0, true) }
+        return (min(1, Double(used - previousUsed) / Double(total - previousTotal)), true)
     }
 }

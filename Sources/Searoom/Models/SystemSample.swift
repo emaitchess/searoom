@@ -101,6 +101,11 @@ struct SystemSample: Codable, Equatable, Sendable {
     let memoryPressure: Double
     let memoryPressureLevel: PressureLevel
 
+    /// The macOS kernel pressure level when `kern.memorystatus_vm_pressure_level`
+    /// was readable, separate from Searoom's derived memory pressure. Absent in
+    /// older archives; decodes as nil.
+    let memorySystemPressureLevel: PressureLevel?
+
     let temperatureCelsius: Double?
     let temperatureSource: TemperatureSource
     let thermalPressureLevel: PressureLevel
@@ -127,6 +132,10 @@ struct SystemSample: Codable, Equatable, Sendable {
     let batteryPercent: Double?
     let isOnExternalPower: Bool?
     let isLowPowerModeEnabled: Bool
+
+    /// Why each numeric reading is what it is. Samples persisted before this
+    /// field existed decode with every domain set to `legacyUnknown`.
+    let availability: SampleAvailability
 
     var overallPressureLevel: PressureLevel {
         max(
@@ -166,6 +175,10 @@ extension SystemSample {
         ) ?? 0
         memoryPressure = try values.decode(Double.self, forKey: .memoryPressure)
         memoryPressureLevel = try values.decode(PressureLevel.self, forKey: .memoryPressureLevel)
+        memorySystemPressureLevel = try values.decodeIfPresent(
+            PressureLevel.self,
+            forKey: .memorySystemPressureLevel
+        )
         temperatureCelsius = try values.decodeIfPresent(Double.self, forKey: .temperatureCelsius)
         temperatureSource = try values.decode(TemperatureSource.self, forKey: .temperatureSource)
         thermalPressureLevel = try values.decode(PressureLevel.self, forKey: .thermalPressureLevel)
@@ -195,6 +208,8 @@ extension SystemSample {
             Bool.self,
             forKey: .isLowPowerModeEnabled
         ) ?? false
+        availability = try values.decodeIfPresent(SampleAvailability.self, forKey: .availability)
+            ?? .legacyUnknown
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -216,6 +231,7 @@ extension SystemSample {
         case decompressionBytesPerSecond
         case memoryPressure
         case memoryPressureLevel
+        case memorySystemPressureLevel
         case temperatureCelsius
         case temperatureSource
         case thermalPressureLevel
@@ -239,6 +255,7 @@ extension SystemSample {
         case batteryPercent
         case isOnExternalPower
         case isLowPowerModeEnabled
+        case availability
     }
 }
 
@@ -262,6 +279,7 @@ extension SystemSample {
         decompressionBytesPerSecond: 0,
         memoryPressure: 0,
         memoryPressureLevel: .unavailable,
+        memorySystemPressureLevel: nil,
         temperatureCelsius: nil,
         temperatureSource: .unavailable,
         thermalPressureLevel: .unavailable,
@@ -284,6 +302,7 @@ extension SystemSample {
         processCount: 0,
         batteryPercent: nil,
         isOnExternalPower: nil,
-        isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled
+        isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+        availability: .legacyUnknown
     )
 }

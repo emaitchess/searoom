@@ -20,8 +20,19 @@ swift build --disable-sandbox
 swift test --disable-sandbox
 swift test --disable-sandbox --filter testCollectorReturnsBoundedValues   # single test (regex match)
 .build/debug/Searoom --self-test       # framework-independent; works without XCTest
-.build/debug/Searoom --dump-sample     # one JSON sample on stdout
+.build/debug/Searoom --dump-sample     # legacy 41-field JSON sample on stdout
+.build/debug/Searoom help              # CLI command reference
+.build/debug/Searoom sample --pretty   # one primed versioned sample
+.build/debug/Searoom watch --count 2   # two JSON Lines samples
+.build/debug/Searoom status --pretty   # pressure, limiting signals, sustained context
+.build/debug/Searoom history --limit 2 --pretty
+.build/debug/Searoom capabilities --pretty
+.build/debug/Searoom metrics --json
+.build/debug/Searoom schema
+.build/debug/Searoom agent-guide
 ```
+
+The lowercase `searoom` command (any basename of exactly `searoom`) dispatches through `CLIParser`/`CLIRunner` in `Sources/Searoom/CLI/` before AppKit exists; recognized commands never construct `NSApplication` or `AppModel`. The app-bundle executable with no arguments still launches the GUI. `--dump-sample` output is pinned by `LegacyDumpSample` at exactly 41 fields; the public versioned documents live in `TelemetryOutputV1` and are covered by the bundled `telemetry-v1.schema.json`.
 
 `--dump-sample` and `--self-test` both take two samples internally, because delta-based metrics (CPU, network, disk, self CPU) have no previous counter on the first read and are intentionally zero.
 

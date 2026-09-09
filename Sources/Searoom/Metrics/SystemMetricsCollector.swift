@@ -15,26 +15,40 @@ final class SystemMetricsCollector {
     private var nextDiskCapacityReading: ContinuousClock.Instant?
     private var nextThermalReading: ContinuousClock.Instant?
     private var nextGPUReading: ContinuousClock.Instant?
-    private var cachedDisk: (read: Double, write: Double) = (0, 0)
-    private var cachedDiskCapacity: (capacityBytes: UInt64?, availableBytes: UInt64?) = (nil, nil)
-    private var cachedThermal: (temperature: Double?, pressureLevel: PressureLevel, fans: [FanSample]) =
-        (nil, .unavailable, [])
-    private var cachedGPU: (
-        usage: Double?,
-        pressure: Double?,
-        level: PressureLevel,
-        memoryUsedBytes: UInt64?,
-        memoryRecommendedBytes: UInt64?,
-        memoryPressure: Double?
-    ) = (nil, nil, .unavailable, nil, nil, nil)
+    private var cachedDisk: DiskReading = DiskReading(read: 0, write: 0, availability: .warmingUp)
+    private var cachedDiskCapacity = DiskCapacityReading(
+        capacityBytes: nil,
+        availableBytes: nil,
+        availability: .unavailable
+    )
+    private var cachedThermal = ThermalReading(
+        temperature: nil,
+        pressureLevel: .unavailable,
+        fans: [],
+        temperatureAvailability: .unavailable,
+        fansAvailability: .unavailable
+    )
+    private var cachedGPU = GPUReading(
+        usage: nil,
+        pressure: nil,
+        level: .unavailable,
+        memoryUsedBytes: nil,
+        memoryRecommendedBytes: nil,
+        memoryPressure: nil,
+        availability: .unavailable
+    )
 
-    func collect() -> SystemSample {
+    /// Collects one sample. `forceDiskCounterRefresh` bypasses only the outer
+    /// five-second disk-counter cache so a CLI warm-up can complete its disk
+    /// baseline. It must never force GPU, thermal, battery, capacity, or
+    /// process-count refreshes.
+    func collect(forceDiskCounterRefresh: Bool = false) -> SystemSample {
         let now = Date.now
         let monotonicNow = clock.now
         let cpuReading = cpu.read()
         let memoryReading = memory.read()
         let networkReading = network.read()
-        if nextDiskReading.map({ monotonicNow >= $0 }) ?? true {
+        if forceDiskCounterRefresh || nextDiskReading.map({ monotonicNow >= $0 }) ?? true {
             cachedDisk = disk.read()
             nextDiskReading = monotonicNow.advanced(by: .seconds(5))
         }
@@ -53,6 +67,7 @@ final class SystemMetricsCollector {
         let diskReading = cachedDisk
         let thermalReading = cachedThermal
         let gpuReading = cachedGPU
+        let diskCapacityReading = cachedDiskCapacity
         let batteryReading = battery.read()
         let processReading = process.read()
         let temperature = thermalReading.temperature ?? batteryReading.temperature
@@ -63,6 +78,10 @@ final class SystemMetricsCollector {
         } else {
             .unavailable
         }
+        let temperatureAvailability: ReadingAvailability =
+            thermalReading.temperatureAvailability == .available
+                || batteryReading.temperature != nil
+                ? .available : .unavailable
 
         return SystemSample(
             timestamp: now,
@@ -83,6 +102,7 @@ final class SystemMetricsCollector {
             decompressionBytesPerSecond: memoryReading.decompressionBytesPerSecond,
             memoryPressure: memoryReading.pressure,
             memoryPressureLevel: memoryReading.pressureLevel,
+            memorySystemPressureLevel: memoryReading.systemPressureLevel,
             temperatureCelsius: temperature,
             temperatureSource: temperatureSource,
             thermalPressureLevel: thermalReading.pressureLevel,
@@ -97,15 +117,32 @@ final class SystemMetricsCollector {
             networkUploadPerSecond: networkReading.upload,
             diskReadPerSecond: diskReading.read,
             diskWritePerSecond: diskReading.write,
-            diskCapacityBytes: cachedDiskCapacity.capacityBytes,
-            diskAvailableBytes: cachedDiskCapacity.availableBytes,
+            diskCapacityBytes: diskCapacityReading.capacityBytes,
+            diskAvailableBytes: diskCapacityReading.availableBytes,
             uptime: ProcessInfo.processInfo.systemUptime,
             processCPUUsage: processReading.cpu,
             processMemoryBytes: processReading.memory,
             processCount: processReading.processCount,
             batteryPercent: batteryReading.percent,
             isOnExternalPower: batteryReading.externalPower,
-            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled
+            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            availability: SampleAvailability(
+                cpuUsageLoad: cpuReading.availability,
+                vmStatistics: memoryReading.vmStatisticsAvailability,
+                swapUsage: memoryReading.swapUsageAvailability,
+                swapIO: memoryReading.swapIOAvailability,
+                compressionIO: memoryReading.compressionIOAvailability,
+                networkIO: networkReading.availability,
+                diskIO: diskReading.availability,
+                diskCapacity: diskCapacityReading.availability,
+                temperature: temperatureAvailability,
+                fans: thermalReading.fansAvailability,
+                gpu: gpuReading.availability,
+                battery: batteryReading.availability,
+                processCPU: processReading.cpuAvailability,
+                processMemory: processReading.memoryAvailability,
+                processCount: processReading.processCountAvailability
+            )
         )
     }
 }

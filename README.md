@@ -112,6 +112,45 @@ searoom.app and offers to open the releases page; nothing else reaches the
 network. Homebrew can also do the upgrade for you, and watching this
 repository's releases works too.
 
+## Command line
+
+Every installation includes a lowercase `searoom` command: the same signed
+executable as the app, reading telemetry and documentation without opening any
+UI. Homebrew installs expose it automatically. From a DMG install, run
+`Searoom install-cli` once (or use the Settings button) to create
+`~/.local/bin/searoom`, or invoke the binary directly at
+`/Applications/Searoom.app/Contents/MacOS/Searoom`.
+
+```sh
+searoom help                 # every command, option, default, and exit code
+searoom sample               # one fully primed telemetry sample, JSON
+searoom watch --count 30     # one JSON sample per line, for a real window
+searoom status               # pressure, limiting signals, sustained context
+searoom history --since 3h   # the app's retained local history
+searoom capabilities         # what this Mac actually exposes
+searoom metrics              # canonical units, formulas, and limitations
+searoom schema               # JSON Schema for every telemetry document
+searoom help --json          # machine-readable catalog for agents
+```
+
+The CLI is read-only and offline. Live samples never write to the app's
+history; `history` never collects anything. Unavailable sensors are reported as
+explicit `null` with an availability reason (`unavailable`, `warmingUp`,
+`legacyUnknown`) rather than fabricated zeroes, so automation can tell a real
+idle reading from missing hardware. Exit codes follow BSD `sysexits.h`: 0
+success, 64 usage, 65 bad local data, 70 internal error, 74 I/O, 130/143 for
+interrupted `watch`.
+
+`searoom metrics`, `searoom schema`, and `searoom agent-guide` are bundled, so
+an agent can discover the full contract offline. `searoom status` adds
+sustained-pressure context from recent persisted history only when that history
+is fresh enough to be meaningful; one sample is never presented as a sustained
+run.
+
+The legacy flags keep their exact behavior: `Searoom --dump-sample` prints the
+historical 41-field JSON shape, and `Searoom --self-test` runs the
+framework-independent checks. New automation should use `searoom sample`.
+
 ## Build
 
 Requirements: macOS 14+, Swift 6, and the macOS command-line developer tools.
@@ -181,7 +220,8 @@ also be checked on minimal command-line-tools installations.
 For a local diagnostic sample without opening the UI:
 
 ```sh
-.build/debug/Searoom --dump-sample
+.build/debug/Searoom --dump-sample    # legacy 41-field JSON shape
+.build/debug/Searoom sample           # versioned CLI sample
 ```
 
 ## Storage and privacy

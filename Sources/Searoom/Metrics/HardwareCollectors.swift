@@ -5,12 +5,20 @@ import IOKit
 import IOKit.ps
 import Metal
 
+struct ThermalReading {
+    let temperature: Double?
+    let pressureLevel: PressureLevel
+    let fans: [FanSample]
+    let temperatureAvailability: ReadingAvailability
+    let fansAvailability: ReadingAvailability
+}
+
 final class ThermalCollector {
     static func sensorDecoderSelfTest() -> Bool {
         SRRunSensorDecoderSelfTest()
     }
 
-    func read() -> (temperature: Double?, pressureLevel: PressureLevel, fans: [FanSample]) {
+    func read() -> ThermalReading {
         var temperature = 0.0
         let measuredTemperature = SRReadTemperature(&temperature) ? temperature : nil
 
@@ -27,8 +35,24 @@ final class ThermalCollector {
         let fans = fanSpeeds.prefix(fanCount).enumerated().map {
             FanSample(name: "FAN \($0.offset + 1)", rpm: $0.element)
         }
-        return (measuredTemperature, level, fans)
+        return ThermalReading(
+            temperature: measuredTemperature,
+            pressureLevel: level,
+            fans: fans,
+            temperatureAvailability: measuredTemperature == nil ? .unavailable : .available,
+            fansAvailability: fans.isEmpty ? .unavailable : .available
+        )
     }
+}
+
+struct GPUReading {
+    let usage: Double?
+    let pressure: Double?
+    let level: PressureLevel
+    let memoryUsedBytes: UInt64?
+    let memoryRecommendedBytes: UInt64?
+    let memoryPressure: Double?
+    let availability: ReadingAvailability
 }
 
 final class GPUCollector {
@@ -58,18 +82,21 @@ final class GPUCollector {
 
     deinit { releaseServices() }
 
-    func read() -> (
-        usage: Double?,
-        pressure: Double?,
-        level: PressureLevel,
-        memoryUsedBytes: UInt64?,
-        memoryRecommendedBytes: UInt64?,
-        memoryPressure: Double?
-    ) {
+    func read() -> GPUReading {
         if services.isEmpty, nextDiscovery.map({ clock.now >= $0 }) ?? true {
             discoverServices()
         }
-        guard !services.isEmpty else { return (nil, nil, .unavailable, nil, nil, nil) }
+        guard !services.isEmpty else {
+            return GPUReading(
+                usage: nil,
+                pressure: nil,
+                level: .unavailable,
+                memoryUsedBytes: nil,
+                memoryRecommendedBytes: nil,
+                memoryPressure: nil,
+                availability: .unavailable
+            )
+        }
 
         var maximumUsage: Double?
         var maximumUsedMemory: UInt64?
@@ -95,20 +122,29 @@ final class GPUCollector {
         guard let usage = maximumUsage.map({ min(1, max(0, $0)) }) else {
             releaseServices()
             nextDiscovery = clock.now.advanced(by: .seconds(60))
-            return (nil, nil, .unavailable, nil, nil, nil)
+            return GPUReading(
+                usage: nil,
+                pressure: nil,
+                level: .unavailable,
+                memoryUsedBytes: nil,
+                memoryRecommendedBytes: nil,
+                memoryPressure: nil,
+                availability: .unavailable
+            )
         }
         let memoryPressure = Self.workingSetRatio(
             used: maximumUsedMemory,
             recommended: recommendedWorkingSetBytes
         )
         let pressure = Self.combinedPressure(usage: usage, workingSetRatio: memoryPressure)
-        return (
-            usage,
-            pressure,
-            PressureLevel.from(utilization: pressure),
-            maximumUsedMemory,
-            recommendedWorkingSetBytes,
-            memoryPressure
+        return GPUReading(
+            usage: usage,
+            pressure: pressure,
+            level: PressureLevel.from(utilization: pressure),
+            memoryUsedBytes: maximumUsedMemory,
+            memoryRecommendedBytes: recommendedWorkingSetBytes,
+            memoryPressure: memoryPressure,
+            availability: .available
         )
     }
 
@@ -180,19 +216,30 @@ final class GPUCollector {
     }
 }
 
+struct BatteryReading {
+    let percent: Double?
+    let externalPower: Bool?
+    let temperature: Double?
+    let availability: ReadingAvailability
+}
+
 final class BatteryCollector {
     private var cached: (percent: Double?, externalPower: Bool?, temperature: Double?) = (nil, nil, nil)
     private let clock = ContinuousClock()
     private var nextRead: ContinuousClock.Instant?
 
-    func read() -> (percent: Double?, externalPower: Bool?, temperature: Double?) {
+    func read() -> BatteryReading {
         let now = clock.now
-        guard nextRead.map({ now >= $0 }) ?? true else { return cached }
+        guard nextRead.map({ now >= $0 }) ?? true else {
+            return cachedBatteryReading()
+        }
         nextRead = now.advanced(by: .seconds(30))
 
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef]
-        else { return cached }
+        else {
+            return cachedBatteryReading()
+        }
 
         for source in sources {
             guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue()
@@ -207,9 +254,25 @@ final class BatteryCollector {
             let publishedTemperature = rawPublishedTemperature.flatMap(Self.normalizeTemperature)
             let temperature = publishedTemperature ?? Self.readRegistryTemperature()
             cached = (percent, state.map { $0 == kIOPSACPowerValue }, temperature)
-            return cached
+            let available = percent != nil || state != nil
+            return BatteryReading(
+                percent: percent,
+                externalPower: state.map { $0 == kIOPSACPowerValue },
+                temperature: temperature,
+                availability: available ? .available : .unavailable
+            )
         }
-        return cached
+        return cachedBatteryReading()
+    }
+
+    private func cachedBatteryReading() -> BatteryReading {
+        let available = cached.percent != nil || cached.externalPower != nil
+        return BatteryReading(
+            percent: cached.percent,
+            externalPower: cached.externalPower,
+            temperature: cached.temperature,
+            availability: available ? .available : .unavailable
+        )
     }
 
     static func normalizeTemperature(_ raw: Double) -> Double? {
@@ -270,22 +333,33 @@ final class BatteryCollector {
     }
 }
 
+struct ProcessReading {
+    let cpu: Double
+    let memory: UInt64
+    let processCount: Int
+    let cpuAvailability: ReadingAvailability
+    let memoryAvailability: ReadingAvailability
+    let processCountAvailability: ReadingAvailability
+}
+
 final class ProcessCollector {
     private var previousCPUTime: Double?
     private var previousTime: ContinuousClock.Instant?
     private let clock = ContinuousClock()
     private var cachedProcessCount = 0
+    private var cachedProcessCountAvailability: ReadingAvailability = .unavailable
     private var nextProcessCountRead: ContinuousClock.Instant?
 
-    func read() -> (cpu: Double, memory: UInt64, processCount: Int) {
+    func read() -> ProcessReading {
         var usage = rusage()
-        let result = getrusage(RUSAGE_SELF, &usage)
-        let totalCPU = result == 0
+        let cpuResult = getrusage(RUSAGE_SELF, &usage)
+        let totalCPU = cpuResult == 0
             ? Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec)
                 + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1_000_000
             : 0
 
         let now = clock.now
+        let hadCPUBaseline = previousCPUTime != nil && previousTime != nil
         var cpu = 0.0
         if let previousCPUTime, let previousTime {
             let elapsed = previousTime.duration(to: now)
@@ -294,8 +368,12 @@ final class ProcessCollector {
                 cpu = max(0, (totalCPU - previousCPUTime) / duration)
             }
         }
-        previousCPUTime = totalCPU
-        previousTime = now
+        // A failed getrusage must not install a zero baseline; recovery would
+        // otherwise report the whole accumulated process CPU time as one spike.
+        if cpuResult == 0 {
+            previousCPUTime = totalCPU
+            previousTime = now
+        }
 
         var taskInfo = mach_task_basic_info_data_t()
         var taskInfoCount = mach_msg_type_number_t(
@@ -308,9 +386,22 @@ final class ProcessCollector {
         }
         let memory = memoryResult == KERN_SUCCESS ? UInt64(taskInfo.resident_size) : 0
         if nextProcessCountRead.map({ now >= $0 }) ?? true {
-            cachedProcessCount = max(0, Int(proc_listallpids(nil, 0)))
+            let processIDCount = proc_listallpids(nil, 0)
+            if processIDCount >= 0 {
+                cachedProcessCount = Int(processIDCount)
+                cachedProcessCountAvailability = .available
+            } else {
+                cachedProcessCountAvailability = .unavailable
+            }
             nextProcessCountRead = now.advanced(by: .seconds(60))
         }
-        return (cpu, memory, cachedProcessCount)
+        return ProcessReading(
+            cpu: cpu,
+            memory: memory,
+            processCount: cachedProcessCount,
+            cpuAvailability: cpuResult == 0 ? (hadCPUBaseline ? .available : .warmingUp) : .unavailable,
+            memoryAvailability: memoryResult == KERN_SUCCESS ? .available : .unavailable,
+            processCountAvailability: cachedProcessCountAvailability
+        )
     }
 }

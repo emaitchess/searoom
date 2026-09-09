@@ -125,6 +125,20 @@ All fractional utilization and pressure values use the closed range `0...1`. Cla
 
 Pressure thresholds are centralized in `PressureLevel.from(utilization:)`: 70% elevated, 85% constrained, and 95% critical. Any formula or threshold change requires tests and matching documentation in `README.md` and relevant UI help.
 
+## Public CLI contract
+
+The lowercase `searoom` command is the same signed executable as the app. Its dispatch runs before any AppKit lifecycle object exists; a recognized command must never construct `NSApplication`, `AppDelegate`, `AppModel`, or register fonts. A no-argument invocation launches the GUI only when the executable's basename is `Searoom` (case-sensitive); a lowercase `searoom` basename prints help.
+
+Rules that keep the CLI trustworthy:
+
+- The versioned telemetry documents in `Sources/Searoom/CLI/TelemetryOutputV1.swift` and the bundled `Sources/Searoom/Resources/CLI/telemetry-v1.schema.json` are a compatibility surface. Adding optional fields is compatible within version 1; renaming a field, changing a type, unit, unit range, or nullability requires a new schema version. Never encode `SystemSample` directly for new commands.
+- Unavailable readings are explicit JSON `null` with an availability reason (`available`, `warmingUp`, `unavailable`, `legacyUnknown`), never fabricated zeroes. Pressure levels are lowercase strings in CLI output; the persisted integer coding is private.
+- `Sources/Searoom/CLI/LegacyDumpSample.swift` pins the exact historical 41-field `--dump-sample` shape, integer pressure levels included. Do not add fields to it; do not encode `SystemSample` there.
+- Live CLI sampling (`sample`, `watch`, `status`, `capabilities`) constructs one `SystemMetricsCollector`, discards one priming sample, and forces exactly one second disk-counter read. It never writes app history, settings, or launch-at-login state, and it never reaches the network.
+- `history` reads the shared `HistoryArchiveStore` synchronously. Missing history is an empty success; corrupt, unsupported, and oversized archives are `EX_DATAERR` diagnostics. The app keeps its fail-closed mapping to empty history.
+- Shared derivations live in `Models/TelemetryDerivedMetrics.swift` and `Models/SustainedPressure.swift`. Do not copy formulas into the CLI or into views; reuse the shared pure helpers so app and CLI cannot drift.
+- CLI tests live in `Tests/SearoomTests/CLIParserTests.swift`, `TelemetryOutputTests.swift`, `CLISamplingTests.swift`, `HistoryArchiveStoreTests.swift`, and `CLIInstallerTests.swift`. A parser, DTO, schema, or installer change lands with its tests.
+
 ## Adding or changing a metric
 
 Follow the data path rather than reaching into collectors from a view:

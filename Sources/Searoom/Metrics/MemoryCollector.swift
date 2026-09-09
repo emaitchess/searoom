@@ -29,6 +29,11 @@ final class MemoryCollector {
         let decompressionBytesPerSecond: Double
         let pressure: Double
         let pressureLevel: PressureLevel
+        let systemPressureLevel: PressureLevel?
+        let vmStatisticsAvailability: ReadingAvailability
+        let swapUsageAvailability: ReadingAvailability
+        let swapIOAvailability: ReadingAvailability
+        let compressionIOAvailability: ReadingAvailability
     }
 
     func read() -> Reading {
@@ -49,13 +54,18 @@ final class MemoryCollector {
                 available: total,
                 cached: 0,
                 compressedBytes: 0,
-                swapUsed: readSwapUsed(),
+                swapUsed: 0,
                 swapInPerSecond: 0,
                 swapOutPerSecond: 0,
                 compressionBytesPerSecond: 0,
                 decompressionBytesPerSecond: 0,
                 pressure: 0,
-                pressureLevel: .unavailable
+                pressureLevel: .unavailable,
+                systemPressureLevel: nil,
+                vmStatisticsAvailability: .unavailable,
+                swapUsageAvailability: .unavailable,
+                swapIOAvailability: .unavailable,
+                compressionIOAvailability: .unavailable
             )
         }
 
@@ -71,12 +81,18 @@ final class MemoryCollector {
         let used = min(total, active + wired + compressed)
         let available = total - used
         let cached = min(available, inactive + purgeable + speculative)
-        let swapUsed = readSwapUsed()
+        let swapUsedResult = readSwapUsed()
+        let hadSwapBaseline = previousSwapInPages != nil
+            && previousSwapOutPages != nil
+            && previousSwapTime != nil
         let swapRates = readSwapRates(
             swapInPages: UInt64(statistics.swapins),
             swapOutPages: UInt64(statistics.swapouts),
             pageBytes: pageBytes
         )
+        let hadCompressionBaseline = previousCompressions != nil
+            && previousDecompressions != nil
+            && previousCompressionTime != nil
         let compressionRates = readCompressionRates(
             compressions: UInt64(statistics.compressions),
             decompressions: UInt64(statistics.decompressions),
@@ -100,13 +116,18 @@ final class MemoryCollector {
             available: available,
             cached: cached,
             compressedBytes: compressed,
-            swapUsed: swapUsed,
+            swapUsed: swapUsedResult ?? 0,
             swapInPerSecond: swapRates.input,
             swapOutPerSecond: swapRates.output,
             compressionBytesPerSecond: compressionRates.input,
             decompressionBytesPerSecond: compressionRates.output,
             pressure: min(1, max(utilization, floor)),
-            pressureLevel: level
+            pressureLevel: level,
+            systemPressureLevel: systemLevel,
+            vmStatisticsAvailability: .available,
+            swapUsageAvailability: swapUsedResult == nil ? .unavailable : .available,
+            swapIOAvailability: hadSwapBaseline ? .available : .warmingUp,
+            compressionIOAvailability: hadCompressionBaseline ? .available : .warmingUp
         )
     }
 
@@ -192,10 +213,10 @@ final class MemoryCollector {
         }
     }
 
-    private func readSwapUsed() -> UInt64 {
+    private func readSwapUsed() -> UInt64? {
         var usage = xsw_usage()
         var size = MemoryLayout<xsw_usage>.size
-        guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0 else { return 0 }
+        guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0 else { return nil }
         return usage.xsu_used
     }
 }

@@ -1,19 +1,19 @@
 import AppKit
+import Darwin
 
-if CommandLine.arguments.contains("--self-test") {
-    SearoomFont.registerBundledFont()
-    let passed = SelfTest.run() && SearoomFont.isDepartureMonoAvailable
-    if !SearoomFont.isDepartureMonoAvailable {
-        fputs("Searoom self-test failed: bundled Departure Mono font\n", stderr)
-    }
-    if passed { print("Searoom self-test passed") }
-    exit(passed ? EXIT_SUCCESS : EXIT_FAILURE)
-}
-if CommandLine.arguments.contains("--dump-sample") {
-    exit(SelfTest.dumpSample() ? EXIT_SUCCESS : EXIT_FAILURE)
-}
+// Process entry point. Dispatch happens before any AppKit lifecycle object
+// exists: the signed bundle executable with no arguments launches the GUI, a
+// lowercase `searoom` symlink prints help, and every recognized command runs
+// through the CLI without constructing NSApplication, AppDelegate, AppModel,
+// or registering fonts.
 
-let application = NSApplication.shared
-let delegate = AppDelegate()
-application.delegate = delegate
-application.run()
+let arguments = CommandLine.arguments
+
+switch CLIParser.parse(arguments: arguments) {
+case .launchGUI:
+    AppLauncher.launch()
+case .usageError(let error):
+    exit(CLIRunner.usageError(error))
+case .run(let command, let json, let pretty):
+    exit(CLIRunner.run(command, json: json, pretty: pretty))
+}

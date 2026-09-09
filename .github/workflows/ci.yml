@@ -21,8 +21,30 @@ jobs:
         run: swift test --disable-sandbox
       - name: Hardware-safe self-test
         run: .build/release/Searoom --self-test
+      - name: CLI command smoke
+        run: |
+          .build/release/Searoom help
+          .build/release/Searoom version
+          .build/release/Searoom schema > /dev/null
+          .build/release/Searoom metrics --json > /dev/null
+          .build/release/Searoom agent-guide > /dev/null
       - name: Package app
         run: Scripts/build-app.sh
+      - name: Packaged CLI and symlink gate
+        run: |
+          APP_CLI="dist/Searoom.app/Contents/MacOS/Searoom"
+          "$APP_CLI" self-test
+          "$APP_CLI" metrics > /dev/null
+          "$APP_CLI" --dump-sample > /dev/null
+          LINK_DIR="$(mktemp -d)"
+          ln -s "$(cd dist/Searoom.app/Contents/MacOS && pwd)/Searoom" "$LINK_DIR/searoom"
+          "$LINK_DIR/searoom" help > /dev/null
+          "$LINK_DIR/searoom" schema > /dev/null
+          "$LINK_DIR/searoom" metrics --json > /dev/null
+          "$LINK_DIR/searoom" sample --pretty > /dev/null
+          "$LINK_DIR/searoom" watch --count 2 > /dev/null
+          "$LINK_DIR/searoom" capabilities --pretty > /dev/null
+          "$LINK_DIR/searoom" history --limit 2 > /dev/null
       - name: Upload unsigned development build
         uses: actions/upload-artifact@v4
         with:
