@@ -1,0 +1,4 @@
+{
+  "agent": "",
+  "copyFiles": [".env.release"]
+}

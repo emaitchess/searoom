@@ -8,3 +8,5 @@ DerivedData/
 
 # Local release configuration; see .env.release.example
 .env.release
+.wt/worktrees/
+.wt/archive/
