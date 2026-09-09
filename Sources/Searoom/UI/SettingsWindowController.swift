@@ -9,9 +9,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let metricTable = NSTableView()
     private let metricScroll = NSScrollView()
     private let addMetricPopUp = NSPopUpButton()
-    private let moveMetricUpButton = NSButton(title: "Move Up", target: nil, action: nil)
-    private let moveMetricDownButton = NSButton(title: "Move Down", target: nil, action: nil)
-    private let removeMetricButton = NSButton(title: "Remove", target: nil, action: nil)
+    private let moveMetricUpButton = NSButton(title: "↑", target: nil, action: nil)
+    private let moveMetricDownButton = NSButton(title: "↓", target: nil, action: nil)
+    private let removeMetricButton = NSButton(title: "✕", target: nil, action: nil)
     private let layoutControl = NSSegmentedControl(
         labels: MenuBarLayout.allCases.map(\.title),
         trackingMode: .selectOne,
@@ -34,6 +34,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     /// Held so the whole row can be hidden while the command is off: a skill
     /// that tells a model to run `searoom` is useless without the command.
     private var agentSkillRow: NSGridRow?
+    private weak var pageScrollView: NSScrollView?
     private let cliStatusLabel = NSTextField(labelWithString: "")
     private let resetHistoryButton = NSButton(title: "Reset Trend History", target: nil, action: nil)
     private let updatesButton = NSButton(title: "Check for Updates", target: nil, action: nil)
@@ -41,9 +42,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     private let emaitchessButton = NSButton(title: "PART OF EMAITCHESS ↗", target: nil, action: nil)
     private let orderTable = NSTableView()
     private let orderScroll = NSScrollView()
-    private let moveUpButton = NSButton(title: "Move Card Up", target: nil, action: nil)
-    private let moveDownButton = NSButton(title: "Move Card Down", target: nil, action: nil)
-    private let resetOrderButton = NSButton(title: "Default Order", target: nil, action: nil)
+    private let moveUpButton = NSButton(title: "↑", target: nil, action: nil)
+    private let moveDownButton = NSButton(title: "↓", target: nil, action: nil)
+    private let resetOrderButton = NSButton(title: "Reset", target: nil, action: nil)
     /// Mirrors the persisted order so the table has a stable data source; the
     /// dashboard can also change it by drag, so `show()` re-reads the model.
     private var sectionOrder: [DashboardSection] = DashboardSection.defaults
@@ -57,7 +58,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         self.model = model
         self.shortcutManager = shortcutManager
         let window = SettingsWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 470, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 430, height: 720),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -78,6 +79,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         // reopening Settings puts the explanation back.
         resetAgentSkillSubtitle()
         syncFromModel()
+        // Reopening should show the top of the page, not wherever it was left.
+        pageScrollView?.documentView?.scroll(.zero)
         showWindow(nil)
         window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
@@ -85,18 +88,35 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
 
     private func configureContent() {
         guard let window else { return }
+        // The window is the popover's size and stays that size. Everything
+        // lives in a scroller, so a long settings page is a scroll rather than
+        // a window that grows past the bottom of a laptop screen.
+        let backdrop = SettingsBackgroundView()
+        window.contentView = backdrop
+
+        let scrollView = SearoomScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        backdrop.addSubview(scrollView)
+        pageScrollView = scrollView
+
         let root = SettingsBackgroundView()
         root.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView = root
-
-        let title = makeLabel("SEAROOM / SETTINGS", size: 18, color: .labelColor)
-        let subtitle = makeLabel("QUIET TELEMETRY FOR MACHINES UNDER LOAD", size: 8, color: .secondaryLabelColor)
-        let heading = NSStackView(views: [title, subtitle])
-        heading.orientation = .vertical
-        heading.alignment = .leading
-        heading.spacing = 6
-        heading.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(heading)
+        scrollView.documentView = root
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: backdrop.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
+            // Matching the clip view's width is what keeps the page from ever
+            // scrolling sideways; the content column narrows instead.
+            root.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
+        ])
 
         let metricColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metric"))
         metricTable.addTableColumn(metricColumn)
@@ -127,8 +147,11 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         moveMetricDownButton.action = #selector(moveMetricDown)
         removeMetricButton.action = #selector(removeMetric)
         moveMetricUpButton.setAccessibilityLabel("Move the selected metric earlier")
+        moveMetricUpButton.toolTip = "Move the selected metric earlier"
         moveMetricDownButton.setAccessibilityLabel("Move the selected metric later")
+        moveMetricDownButton.toolTip = "Move the selected metric later"
         removeMetricButton.setAccessibilityLabel("Remove the selected metric")
+        removeMetricButton.toolTip = "Remove the selected metric"
 
         layoutControl.target = self
         layoutControl.action = #selector(layoutChanged)
@@ -348,8 +371,11 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         moveDownButton.action = #selector(moveSectionDown)
         resetOrderButton.action = #selector(resetSectionOrder)
         moveUpButton.setAccessibilityLabel("Move the selected card earlier")
+        moveUpButton.toolTip = "Move the selected card earlier"
         moveDownButton.setAccessibilityLabel("Move the selected card later")
+        moveDownButton.toolTip = "Move the selected card later"
         resetOrderButton.setAccessibilityLabel("Restore the default card order")
+        resetOrderButton.toolTip = "Restore the default card order"
 
         let orderButtons = NSStackView(views: [moveUpButton, moveDownButton, resetOrderButton])
         orderButtons.orientation = .horizontal
@@ -368,15 +394,6 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         historyGroup.spacing = 10
         historyGroup.alignment = .centerY
         historySlider.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let maintenanceActions = NSStackView(views: [updatesButton, resetHistoryButton, NSView()])
-        maintenanceActions.orientation = .horizontal
-        maintenanceActions.alignment = .centerY
-        maintenanceActions.spacing = 8
-        if let filler = maintenanceActions.views.last {
-            filler.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            filler.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        }
 
         // Settings are grouped by what they change rather than by the order
         // they were built in: the two surfaces first, then what feeds them,
@@ -405,7 +422,8 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
                 ("Trackpad feedback", trailing(hapticsButton)),
             ]),
             ("MAINTENANCE", [
-                ("", maintenanceActions),
+                ("Updates", leading(updatesButton)),
+                ("Trend history", leading(resetHistoryButton)),
             ]),
         ]
 
@@ -434,14 +452,14 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         }
         if let agentSkillRowIndex { agentSkillRow = grid.row(at: agentSkillRowIndex) }
         grid.rowSpacing = 8
-        grid.columnSpacing = 24
+        grid.columnSpacing = 18
         grid.column(at: 0).xPlacement = .leading
         grid.column(at: 1).xPlacement = .fill
         grid.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(grid)
 
 
-        let noteWidth = (window.contentView?.bounds.width ?? 470) - 48
+        let noteWidth = window.contentLayoutRect.width - 48
         let historyNote = makeHistoryNote(width: noteWidth)
         historyNote.note.delegate = self
         historyNote.note.translatesAutoresizingMaskIntoConstraints = false
@@ -487,11 +505,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         root.addSubview(emaitchessButton)
 
         NSLayoutConstraint.activate([
-            heading.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-            heading.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
             grid.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             grid.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            grid.topAnchor.constraint(equalTo: heading.bottomAnchor, constant: 28),
+            grid.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
             historyNote.note.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             historyNote.note.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
             historyNote.note.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 20),
@@ -529,7 +545,9 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         lastHapticHistoryIndex = historyIndex
         updateHistoryLabel(minutes: historyValues[historyIndex])
         shortcutRecorder.shortcut = model.settings.globalShortcut
-        shortcutClearButton.isEnabled = model.settings.globalShortcut != nil
+        // Nothing to clear when nothing is set, and a permanently dead button
+        // is worse than no button. The row keeps its height either way.
+        shortcutClearButton.isHidden = model.settings.globalShortcut == nil
         launchButton.state = SMAppService.mainApp.status == .enabled ? .on : .off
         hapticsButton.state = model.settings.hapticsEnabled ? .on : .off
         sectionOrder = model.settings.dashboardSectionOrder
@@ -972,7 +990,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
             shortcutManager.unregister()
             setShortcutError(nil)
             model.updateSettings { $0.globalShortcut = nil }
-            shortcutClearButton.isEnabled = false
+            shortcutClearButton.isHidden = true
             return true
         }
 
@@ -984,7 +1002,7 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
         }
         setShortcutError(nil)
         model.updateSettings { $0.globalShortcut = shortcut }
-        shortcutClearButton.isEnabled = true
+        shortcutClearButton.isHidden = false
         return true
     }
 
@@ -997,6 +1015,18 @@ final class SettingsWindowController: NSWindowController, NSTextViewDelegate,
     /// so the eye can find the group boundaries without a rule or a box.
     private static let agentSkillRowLabelValue = "Agent skills"
     private var agentSkillRowLabel: String { Self.agentSkillRowLabelValue }
+
+    /// Holds a control at the leading edge of its grid cell. The column is
+    /// filled, so without this a button stretches the full width of the page.
+    private func leading(_ view: NSView) -> NSStackView {
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let stack = NSStackView(views: [view, spacer])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        return stack
+    }
 
     /// Pushes a control to the trailing edge of its grid cell, so the three
     /// switches line up on one edge instead of drifting with their widths.
@@ -1046,11 +1076,13 @@ private final class SettingsWindow: NSWindow {
 
 @MainActor
 private final class SettingsBackgroundView: NSView {
+    /// Flipped so the scroller's origin is the top of the page. An unflipped
+    /// document view opens scrolled to the bottom.
+    override var isFlipped: Bool { true }
+
     override func draw(_ dirtyRect: NSRect) {
         let theme = SearoomTheme(appearance: effectiveAppearance)
         theme.paper.setFill()
         bounds.fill()
-        let header = NSBezierPath(rect: NSRect(x: 0, y: bounds.height - 84, width: bounds.width, height: 84))
-        DitherPattern.fill(header, color: theme.ink.withAlphaComponent(0.12), density: 0.25)
     }
 }

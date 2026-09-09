@@ -1785,7 +1785,9 @@ final class DashboardViewController: NSViewController {
 }
 
 @MainActor
-private final class SearoomScrollView: NSScrollView {
+/// Vertical-only scrolling, shared by the dashboard and the Settings window so
+/// both surfaces behave the same under a trackpad.
+final class SearoomScrollView: NSScrollView {
     override func scrollWheel(with event: NSEvent) {
         guard abs(event.scrollingDeltaY) > 0.001 else { return }
         super.scrollWheel(with: event)

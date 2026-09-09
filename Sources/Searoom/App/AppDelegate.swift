@@ -199,6 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             settingsController = SettingsWindowController(model: model, shortcutManager: shortcutManager)
             settingsController?.window?.delegate = self
         }
+        // A window the user has to find again should be reachable the way every
+        // other window is, so the app joins the Command-Tab switcher while
+        // Settings is open. Regular is the only policy that puts it there, and
+        // it brings a Dock icon with it; both go away again on close.
+        NSApp.setActivationPolicy(.regular)
         settingsController?.show()
     }
 
@@ -206,6 +211,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         guard let closingWindow = notification.object as? NSWindow,
               closingWindow === settingsController?.window else { return }
         settingsController = nil
+        // Back to a menu bar app. Deferred because the window is still closing,
+        // and changing policy underneath it drops the frame on screen.
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     private func openActivityMonitor() {

@@ -49,6 +49,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   model to run `searoom` is useless without it.
 
 ### Fixed
+- Settings is now the popover's size, 430 by 720, and scrolls. It had grown to
+  928 points tall, which no longer fits a laptop screen, and a fixed window
+  also means no control can resize it by appearing or disappearing. The page's
+  own `SEAROOM / SETTINGS` banner is gone, since the title bar already names
+  the window, and the reorder controls are arrow glyphs, which is what fits
+  beside a label column at that width; each keeps its accessibility label and
+  gains a tooltip.
+- The app appears in the Command-Tab switcher and the Dock while Settings is
+  open, and goes back to being a menu bar app when it closes.
+- `Clear` beside the shortcut recorder is hidden when no shortcut is set,
+  rather than shown permanently disabled.
+
 - Command-W closes the Settings window and leaves the app running in the menu
   bar. The shortcut is handled by the window itself, because an accessory app
   installs no menu bar and `NSApp.mainMenu` key equivalents are never matched:
