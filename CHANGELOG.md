@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- CPU/package temperature now reports on M5 Pro Macs. The SMC temperature
+  probe gains the `Tp04`, `Tp08` and `Tp0C` keys, which carry the M5 Pro's
+  package sensors as `flt` payloads that track load between roughly 52 and
+  72 Celsius on identified hardware. The earlier M-series keys stay first in
+  the probe order, so each generation still finds its own sensor, and the
+  reading keeps its `CPU PACKAGE` source label.
+
+### Added
+
 - A Top Processes card on the dashboard names the five heaviest readable
   processes by CPU rate and the five by resident memory at all times,
   refreshing at the sampling interval like the other live readings, so the

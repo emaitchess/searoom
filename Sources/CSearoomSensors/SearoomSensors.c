@@ -183,9 +183,13 @@ bool SRReadTemperature(double *temperature_celsius) {
     if (temperature_celsius == NULL) return false;
 
     // Intel package/proximity keys followed by Apple Silicon performance-core keys.
+    // The Tp indices differ across M-series generations; M5 Pro (macOS 27)
+    // exposes its package sensors at Tp04, Tp08 and Tp0C, all `flt ` payloads
+    // that track load between 52 and 72 Celsius on identified hardware. They
+    // join the earlier M-series keys so each generation finds its own first.
     static const char *keys[] = {
         "TC0P", "TC0E", "TC0F", "TC0D", "TC0H", "TC0C",
-        "Tp01", "Tp05", "Tp09", "Tp0P", "Te05", "Te0P"
+        "Tp01", "Tp05", "Tp09", "Tp0P", "Tp04", "Tp08", "Tp0C", "Te05", "Te0P"
     };
     static int selected_key = -1;
     static bool sensor_search_complete = false;
