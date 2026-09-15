@@ -17,12 +17,37 @@ enum DashboardSection: String, CaseIterable, Codable, Sendable {
     case info
     case extras
 
-    /// The shipped arrangement: primary resource cards before secondary
-    /// hardware and process detail, which is what `DESIGN.md` asks of the
-    /// default. A reader who reorders is overriding that default knowingly.
+    /// The shipped arrangement: the six metric cards first, then the
+    /// top-processes summary, then secondary hardware and process detail,
+    /// which is what `DESIGN.md` asks of the default. A reader who reorders
+    /// is overriding that default knowingly.
     static let defaults: [DashboardSection] = [
+        .cpu, .memory, .gpu, .thermal, .gpuMemory, .disk, .topProcesses, .network, .info, .extras
+    ]
+
+    /// The shipped arrangement while the top-processes card first existed,
+    /// placed after Memory. An archive holding exactly this, or one from a
+    /// build before the card existed where normalization appended it at the
+    /// end, belongs to a reader who never moved anything, and the upgrade
+    /// maps it onto the current default.
+    static let previousDefaults: [DashboardSection] = [
         .cpu, .memory, .topProcesses, .gpu, .thermal, .gpuMemory, .disk, .network, .info, .extras
     ]
+    static let appendedDefaults: [DashboardSection] = [
+        .cpu, .memory, .gpu, .thermal, .gpuMemory, .disk, .network, .info, .extras, .topProcesses
+    ]
+
+    /// Maps an order that meant "the reader never moved anything" onto the
+    /// current shipped default. A deliberate reordering is never touched.
+    /// Decode-time only: a drag that happens to land the card in a retired
+    /// arrangement is user data, not a migration candidate.
+    static func migratedOrder(_ sections: [DashboardSection]?) -> [DashboardSection] {
+        let normalized = normalized(sections ?? defaults)
+        guard normalized == previousDefaults || normalized == appendedDefaults else {
+            return normalized
+        }
+        return defaults
+    }
 
     /// Title case, for the Settings reorder list. The cards draw their own
     /// uppercase micro-labels; these names match them so the list and the

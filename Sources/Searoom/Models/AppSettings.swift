@@ -214,9 +214,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         // Decoded by raw name so a section retired in a later build is dropped
         // rather than failing the whole archive; normalization refills the gap.
         let sectionNames = try values.decodeIfPresent([String].self, forKey: .dashboardSectionOrder)
-        let sections = sectionNames?.compactMap(DashboardSection.init(rawValue:))
-            ?? DashboardSection.defaults
-        dashboardSectionOrder = DashboardSection.normalized(sections)
+        dashboardSectionOrder = DashboardSection.migratedOrder(sectionNames?.compactMap(DashboardSection.init(rawValue:)))
         // An existing archive proves Searoom has run before this prompt existed.
         hasCompletedLaunchAtLoginPrompt = try values.decodeIfPresent(
             Bool.self,

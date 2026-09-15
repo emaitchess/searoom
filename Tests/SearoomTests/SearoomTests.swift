@@ -953,11 +953,11 @@ final class SearoomTests: XCTestCase {
         let expected: [(DashboardSection, NSRect)] = [
             (.cpu, NSRect(x: 12, y: 82, width: 198, height: 158)),
             (.memory, NSRect(x: 220, y: 82, width: 198, height: 158)),
-            (.topProcesses, NSRect(x: 12, y: 250, width: 406, height: 122)),
-            (.gpu, NSRect(x: 12, y: 382, width: 198, height: 158)),
-            (.thermal, NSRect(x: 220, y: 382, width: 198, height: 158)),
-            (.gpuMemory, NSRect(x: 12, y: 550, width: 198, height: 158)),
-            (.disk, NSRect(x: 220, y: 550, width: 198, height: 158)),
+            (.gpu, NSRect(x: 12, y: 250, width: 198, height: 158)),
+            (.thermal, NSRect(x: 220, y: 250, width: 198, height: 158)),
+            (.gpuMemory, NSRect(x: 12, y: 418, width: 198, height: 158)),
+            (.disk, NSRect(x: 220, y: 418, width: 198, height: 158)),
+            (.topProcesses, NSRect(x: 12, y: 586, width: 406, height: 122)),
             (.network, NSRect(x: 12, y: 718, width: 406, height: 122)),
             (.info, NSRect(x: 12, y: 850, width: 406, height: 66)),
             (.extras, NSRect(x: 12, y: 926, width: 406, height: 180))
@@ -1021,11 +1021,11 @@ final class SearoomTests: XCTestCase {
 
         // Dragging CPU onto the right half of the last card row puts it after
         // every card it has passed, and dropping back on itself is a no-op.
-        let ontoDiskTrailing = NSPoint(x: 400, y: 629)
+        let ontoDiskTrailing = NSPoint(x: 400, y: 497)
         let trailingIndex = layout.insertionIndex(for: ontoDiskTrailing, excluding: .cpu)
         XCTAssertEqual(
             DashboardSection.reordered(DashboardSection.defaults, moving: .cpu, to: trailingIndex),
-            [.memory, .topProcesses, .gpu, .thermal, .gpuMemory, .disk, .cpu, .network, .info, .extras]
+            [.memory, .gpu, .thermal, .gpuMemory, .disk, .cpu, .topProcesses, .network, .info, .extras]
         )
 
         let ontoOwnPosition = NSPoint(x: 60, y: 120)
@@ -1067,6 +1067,33 @@ final class SearoomTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSettings.self, from: forward)
         XCTAssertEqual(decoded.dashboardSectionOrder.first, .disk)
         XCTAssertEqual(Set(decoded.dashboardSectionOrder), Set(DashboardSection.allCases))
+    }
+
+    func testSectionOrderMigrationAdoptsTheNewDefaultForNeverReorderedArchives() throws {
+        // An archive written while the card shipped after Memory.
+        let afterMemory = Data(
+            "{\"dashboardSectionOrder\":[\"cpu\",\"memory\",\"topProcesses\",\"gpu\",\"thermal\",\"gpuMemory\",\"disk\",\"network\",\"info\",\"extras\"]}".utf8
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(AppSettings.self, from: afterMemory).dashboardSectionOrder,
+            DashboardSection.defaults
+        )
+
+        // A pre-card archive has the card appended by normalization; that
+        // also counts as never reordered.
+        let preCard = Data("{\"sampleInterval\":5}".utf8)
+        XCTAssertEqual(
+            try JSONDecoder().decode(AppSettings.self, from: preCard).dashboardSectionOrder,
+            DashboardSection.defaults
+        )
+
+        // A deliberate reordering is never touched.
+        let custom = Data(
+            "{\"dashboardSectionOrder\":[\"topProcesses\",\"cpu\",\"memory\",\"gpu\",\"thermal\",\"gpuMemory\",\"disk\",\"network\",\"info\",\"extras\"]}".utf8
+        )
+        let reordered = try JSONDecoder().decode(AppSettings.self, from: custom)
+        XCTAssertEqual(reordered.dashboardSectionOrder.first, .topProcesses)
+        XCTAssertNotEqual(reordered.dashboardSectionOrder, DashboardSection.defaults)
     }
 
     func testReorderingMovesOneSectionAndKeepsTheRest() {
