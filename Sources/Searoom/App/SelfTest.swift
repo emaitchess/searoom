@@ -88,6 +88,25 @@ enum SelfTest {
             abs(GPUCollector.combinedPressure(usage: 0.2, workingSetRatio: 0.9) - 0.9) < 0.0001,
             "GPU pressure folds the working-set ratio"
         )
+        check(
+            ProcessRanking.rankedPIDs(in: [
+                ProcessRanking.Candidate(pid: 10, cpuUsage: 0.1, residentBytes: 1_000),
+                ProcessRanking.Candidate(pid: 11, cpuUsage: 0.5, residentBytes: 3_000),
+                ProcessRanking.Candidate(pid: 12, cpuUsage: 0, residentBytes: 2_000),
+                ProcessRanking.Candidate(pid: 13, cpuUsage: 0.3, residentBytes: 2_000),
+                ProcessRanking.Candidate(pid: 14, cpuUsage: 0.2, residentBytes: 9_000),
+                ProcessRanking.Candidate(pid: 15, cpuUsage: 0.4, residentBytes: 1_000)
+            ]) == (cpu: [11, 15, 13, 14, 10], memory: [14, 11, 12, 13, 10]),
+            "process ranking orders, filters, and caps both lists"
+        )
+        check(
+            ProcessRanking.rankedPIDs(in: [
+                ProcessRanking.Candidate(pid: 20, cpuUsage: 0, residentBytes: 100),
+                ProcessRanking.Candidate(pid: 21, cpuUsage: 0, residentBytes: 100),
+                ProcessRanking.Candidate(pid: 22, cpuUsage: 0, residentBytes: 100)
+            ]) == (cpu: [], memory: [20, 21, 22]),
+            "process ranking keeps ties and drops an idle CPU list"
+        )
         let legacySettings = Data("{\"sampleInterval\":5}".utf8)
         let decodedSettings = try? JSONDecoder().decode(AppSettings.self, from: legacySettings)
         check(decodedSettings?.historyMinutes == 30, "settings migration")

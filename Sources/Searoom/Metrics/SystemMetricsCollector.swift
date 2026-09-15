@@ -10,6 +10,7 @@ final class SystemMetricsCollector {
     private let gpu = GPUCollector()
     private let battery = BatteryCollector()
     private let process = ProcessCollector()
+    private let topProcesses = TopProcessCollector()
     private let clock = ContinuousClock()
     private var nextDiskReading: ContinuousClock.Instant?
     private var nextDiskCapacityReading: ContinuousClock.Instant?
@@ -145,6 +146,13 @@ final class SystemMetricsCollector {
             )
         )
     }
+
+    /// The process ranking is self-throttled inside its collector and must be
+    /// read on the engine's serial queue next to `collect`, because its
+    /// per-PID baselines are queue-confined state.
+    func collectProcessRanking() -> ProcessRanking {
+        topProcesses.read()
+    }
 }
 
 final class MetricsEngine: @unchecked Sendable {
@@ -154,7 +162,7 @@ final class MetricsEngine: @unchecked Sendable {
 
     func start(
         interval: TimeInterval,
-        onSample: @escaping @MainActor @Sendable (SystemSample) -> Void
+        onSample: @escaping @MainActor @Sendable (SystemSample, ProcessRanking) -> Void
     ) {
         queue.async { [weak self] in
             guard let self else { return }
@@ -171,7 +179,8 @@ final class MetricsEngine: @unchecked Sendable {
             timer.setEventHandler { [weak self] in
                 guard let self else { return }
                 let sample = autoreleasepool { collector.collect() }
-                DispatchQueue.main.async { onSample(sample) }
+                let processes = autoreleasepool { collector.collectProcessRanking() }
+                DispatchQueue.main.async { onSample(sample, processes) }
             }
             self.timer = timer
             timer.resume()

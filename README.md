@@ -30,6 +30,7 @@ unavailable.
 - Best-effort fan RPM
 - Disk read/write throughput and remaining capacity
 - How long the current overall pressure level has been held
+- Top five processes by CPU and by resident memory while CPU or memory pressure is elevated
 - Uptime, process count, battery level, power source and Low Power Mode
 - Searoom's own CPU and resident-memory usage
 - Bounded dithered trend graphs for load-bearing metrics
@@ -298,6 +299,17 @@ samples without changing preferences, shortcuts or launch-at-login state.
   otherwise Searoom shows the AppleSmartBattery pack sensor and labels it `BAT`.
   AppleSmartBattery registry values expressed in hundredths of a degree Celsius
   are normalized before display.
+- **Top Processes** ranks the five heaviest readable processes by CPU rate and by
+  resident memory, and appears only while CPU or memory pressure is elevated or
+  worse. CPU rates come from cumulative process CPU-time deltas over a
+  five-second read and can exceed 100 percent when a process uses several cores,
+  the same unclamped quantity as the Searoom observer metric. The scan uses
+  public libproc calls with no helper, no subprocess, and no extra permissions;
+  processes that refuse the read are omitted rather than shown as zero, so
+  counts can differ from Activity Monitor. Rankings refresh on a five-second
+  cadence, live only in the dashboard view, and are never persisted to history:
+  process names stay out of stored archives. GPU and temperature attribution per
+  process has no public macOS API and is deliberately not attempted.
 
 ## License
 

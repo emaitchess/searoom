@@ -4,6 +4,21 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A Top Processes card on the dashboard names the five heaviest readable
+  processes by CPU rate and the five by resident memory whenever CPU or memory
+  pressure reaches elevated, so the first place to look is visible without
+  leaving the dashboard. The scan uses public libproc calls on the existing
+  sampling engine's five-second cadence — no helper, no subprocess, no new
+  permission — and a process that refuses the read is omitted rather than shown
+  as zero. Rankings live only in the dashboard and are never persisted to
+  history, because process names do not belong in stored archives. The card
+  joins the movable dashboard sections and can be dragged or reordered in
+  Settings like the others.
+
 ## [0.7.0] - 2026-09-09
 
 ### Added

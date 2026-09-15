@@ -159,6 +159,7 @@ final class DashboardView: NSView {
         )
         let cpuRect = layout.rect(for: .cpu) ?? .zero
         let memoryRect = layout.rect(for: .memory) ?? .zero
+        let topProcessesRect = layout.rect(for: .topProcesses) ?? .zero
         let gpuRect = layout.rect(for: .gpu) ?? .zero
         let thermalRect = layout.rect(for: .thermal) ?? .zero
         let gpuMemoryRect = layout.rect(for: .gpuMemory) ?? .zero
@@ -222,6 +223,12 @@ final class DashboardView: NSView {
             secondaryColor: theme.cool,
             values: graphs?.memory ?? [],
             drawsGraph: needsToDraw(graphRect(for: memoryRect)),
+            theme: theme
+        ) }
+
+        if needsToDraw(topProcessesRect) { drawTopProcessesCard(
+            rect: topProcessesRect,
+            sample: sample,
             theme: theme
         ) }
 
@@ -682,6 +689,123 @@ final class DashboardView: NSView {
         }
     }
 
+    /// The top five processes by CPU and by resident memory, shown only while
+    /// CPU or memory pressure is elevated or worse. The ranking arrives on the
+    /// collector's five-second cadence, so unlike the live cards it is not
+    /// redrawn per sample, only when the ranking itself changes.
+    private func drawTopProcessesCard(rect: NSRect, sample: SystemSample, theme: SearoomTheme) {
+        drawCardFrame(rect, theme: theme)
+        drawText(
+            "TOP PROCESSES",
+            at: NSPoint(x: rect.minX + 10, y: rect.minY + 10),
+            font: SearoomFont.metric(10),
+            color: theme.subdued
+        )
+
+        let ranking = model.topProcesses
+        guard max(sample.cpuPressureLevel, sample.memoryPressureLevel) >= .elevated else {
+            // Below the threshold there is nothing to explain; the state word
+            // pairs with the header dot's color for the same level.
+            drawText(
+                "NOMINAL",
+                at: NSPoint(
+                    x: rect.minX + 10,
+                    y: Self.centredTextY(in: rect, font: SearoomFont.metric(9))
+                ),
+                font: SearoomFont.metric(9),
+                color: theme.subdued
+            )
+            return
+        }
+
+        theme.ink.withAlphaComponent(0.22).setFill()
+        NSRect(x: rect.midX, y: rect.minY + 32, width: 1, height: rect.height - 44).fill()
+
+        let columnTop = rect.minY + 46
+        let rowHeight: CGFloat = 15
+        let labelFont = SearoomFont.metric(7)
+        let rowFont = SearoomFont.metric(8)
+        drawText(
+            "BY CPU",
+            at: NSPoint(x: rect.minX + 10, y: rect.minY + 30),
+            font: labelFont,
+            color: theme.subdued
+        )
+        drawText(
+            "BY MEMORY",
+            at: NSPoint(x: rect.midX + 12, y: rect.minY + 30),
+            font: labelFont,
+            color: theme.subdued
+        )
+        drawColumn(
+            ranking.byCPU,
+            emptyReason: topProcessesEmptyReason(ranking),
+            column: NSRect(x: rect.minX + 10, y: columnTop, width: rect.midX - rect.minX - 18, height: rect.maxY - columnTop - 6),
+            rowHeight: rowHeight,
+            font: rowFont,
+            value: { MetricFormat.unboundedPercent($0.cpuUsage) },
+            theme: theme
+        )
+        drawColumn(
+            ranking.byMemory,
+            emptyReason: topProcessesEmptyReason(ranking),
+            column: NSRect(x: rect.midX + 12, y: columnTop, width: rect.maxX - rect.midX - 22, height: rect.maxY - columnTop - 6),
+            rowHeight: rowHeight,
+            font: rowFont,
+            value: { MetricFormat.compactBytes($0.residentBytes) },
+            theme: theme
+        )
+    }
+
+    private func topProcessesEmptyReason(_ ranking: ProcessRanking) -> String {
+        switch ranking.availability {
+        case .warmingUp: "MEASURING"
+        case .unavailable: "UNAVAILABLE"
+        default: "NONE"
+        }
+    }
+
+    private func drawColumn(
+        _ entries: [RankedProcess],
+        emptyReason: String,
+        column: NSRect,
+        rowHeight: CGFloat,
+        font: NSFont,
+        value: (RankedProcess) -> String,
+        theme: SearoomTheme
+    ) {
+        guard !entries.isEmpty else {
+            drawText(
+                emptyReason,
+                at: NSPoint(x: column.minX, y: column.minY),
+                font: SearoomFont.metric(8),
+                color: theme.subdued
+            )
+            return
+        }
+        for (index, entry) in entries.enumerated() {
+            let y = column.minY + rowHeight * CGFloat(index)
+            drawText(
+                entry.name,
+                in: NSRect(
+                    x: column.minX,
+                    y: y,
+                    width: column.width - 30,
+                    height: rowHeight
+                ),
+                font: font,
+                color: theme.ink
+            )
+            drawText(
+                value(entry),
+                alignedRightAt: column.maxX,
+                y: y,
+                font: font,
+                color: theme.ink
+            )
+        }
+    }
+
     private func drawInfoPair(
         rect: NSRect,
         leftTitle: String,
@@ -1113,6 +1237,8 @@ final class DashboardView: NSView {
             ownProcess: "\(MetricFormat.unboundedPercent(sample.processCPUUsage))"
                 + "-\(MetricFormat.compactBytes(sample.processMemoryBytes, unit: processMemoryUnit))"
                 + "-\(model.settings.sampleInterval)",
+            topProcessesGate: max(sample.cpuPressureLevel, sample.memoryPressureLevel),
+            topProcesses: model.topProcesses,
             pressures: [
                 sample.cpuPressureLevel,
                 sample.memoryPressureLevel,
@@ -1165,6 +1291,11 @@ final class DashboardView: NSView {
                 width: layout.selfRect.width - 9,
                 height: 31
             ))
+        }
+        if let topProcesses = layout.rect(for: .topProcesses),
+           previous.topProcessesGate != current.topProcessesGate
+                || previous.topProcesses != current.topProcesses {
+            invalidateVisible(topProcesses.insetBy(dx: 2, dy: 5))
         }
 
         let cards = [cpu, memory, gpu, thermal, gpuMemory]
@@ -1521,6 +1652,7 @@ final class DashboardView: NSView {
         let selfImpact = "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
             + "\(processMemory) memory. "
             + "Click a unit-bearing metric to change its display unit."
+        let topProcesses = Self.spokenTopProcesses(gate: max(sample.cpuPressureLevel, sample.memoryPressureLevel), ranking: model.topProcesses)
         setAccessibilityValue(
             "System \(sample.overallPressureLevel.systemLabel)\(sustainedPhrase). "
                 + "CPU \(MetricFormat.percent(sample.cpuUsage)). "
@@ -1529,7 +1661,27 @@ final class DashboardView: NSView {
                 + "Disk \(diskAvailable). "
                 + "Temperature \(temperature). "
                 + selfImpact
+                + topProcesses
         )
+    }
+
+    /// One sentence naming the leading CPU and memory consumers, because a
+    /// VoiceOver pass through five rows twice would be hard to sit through.
+    private static func spokenTopProcesses(
+        gate: PressureLevel,
+        ranking: ProcessRanking
+    ) -> String {
+        guard gate >= .elevated, gate != .unavailable else { return "" }
+        var phrase = ""
+        if let cpu = ranking.byCPU.first {
+            phrase += " Highest CPU use is \(cpu.name) at "
+                + "\(Int((cpu.cpuUsage * 100).rounded())) percent."
+        }
+        if let memory = ranking.byMemory.first {
+            phrase += " Highest memory use is \(memory.name) holding "
+                + "\(MetricFormat.bytes(memory.residentBytes)) of RAM."
+        }
+        return phrase
     }
 
     private static func spokenDuration(_ interval: TimeInterval) -> String {
@@ -1646,6 +1798,8 @@ final class DashboardView: NSView {
         let info: String
         let extras: String
         let ownProcess: String
+        let topProcessesGate: PressureLevel
+        let topProcesses: ProcessRanking
         let pressures: [PressureLevel]
     }
 

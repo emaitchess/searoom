@@ -8,6 +8,7 @@ import Foundation
 enum DashboardSection: String, CaseIterable, Codable, Sendable {
     case cpu
     case memory
+    case topProcesses
     case gpu
     case thermal
     case gpuMemory
@@ -20,7 +21,7 @@ enum DashboardSection: String, CaseIterable, Codable, Sendable {
     /// hardware and process detail, which is what `DESIGN.md` asks of the
     /// default. A reader who reorders is overriding that default knowingly.
     static let defaults: [DashboardSection] = [
-        .cpu, .memory, .gpu, .thermal, .gpuMemory, .disk, .network, .info, .extras
+        .cpu, .memory, .topProcesses, .gpu, .thermal, .gpuMemory, .disk, .network, .info, .extras
     ]
 
     /// Title case, for the Settings reorder list. The cards draw their own
@@ -30,6 +31,7 @@ enum DashboardSection: String, CaseIterable, Codable, Sendable {
         switch self {
         case .cpu: "CPU"
         case .memory: "Memory"
+        case .topProcesses: "Top Processes"
         case .gpu: "GPU"
         case .thermal: "Thermal"
         case .gpuMemory: "GPU Memory"
@@ -45,13 +47,14 @@ enum DashboardSection: String, CaseIterable, Codable, Sendable {
     var isFullWidth: Bool {
         switch self {
         case .cpu, .memory, .gpu, .thermal, .gpuMemory, .disk: false
-        case .network, .info, .extras: true
+        case .topProcesses, .network, .info, .extras: true
         }
     }
 
     var height: CGFloat {
         switch self {
         case .cpu, .memory, .gpu, .thermal, .gpuMemory, .disk: 158
+        case .topProcesses: 122
         case .network: 122
         // Fits its content rather than the grid: a title line and one reading,
         // with no trend graph to fill the rest. At 88 the lower third was empty.

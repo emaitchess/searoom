@@ -8,6 +8,10 @@ extension Notification.Name {
 @MainActor
 final class AppModel {
     private(set) var currentSample = SystemSample.placeholder
+    /// The ranked process lists that accompany the current sample. Display
+    /// state only: never appended to history and never persisted, because
+    /// process names do not belong in stored archives.
+    private(set) var topProcesses = ProcessRanking.empty
     private(set) var history = RingBuffer<SystemSample>()
     private(set) var settings: AppSettings
     private(set) var dashboardUnitState = DashboardUnitState()
@@ -44,7 +48,9 @@ final class AppModel {
         }
     }
 
-    func consume(_ sample: SystemSample) {
+    func consume(_ sample: SystemSample, processes: ProcessRanking) {
+        topProcesses = processes
+
         // The live reading always updates. Only what is retained for the trend
         // graphs is thinned, so the menu bar and dashboard numbers still move
         // at the sampling interval however long the window is.

@@ -157,8 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func startSampling() {
         guard let model = self.model else { return }
         activeSampleInterval = model.settings.sampleInterval
-        metricsEngine.start(interval: model.settings.sampleInterval) { sample in
-            model.consume(sample)
+        metricsEngine.start(interval: model.settings.sampleInterval) { sample, processes in
+            model.consume(sample, processes: processes)
         }
     }
 
