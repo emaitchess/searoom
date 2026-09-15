@@ -54,9 +54,7 @@ enum DashboardSection: String, CaseIterable, Codable, Sendable {
     var height: CGFloat {
         switch self {
         case .cpu, .memory, .gpu, .thermal, .gpuMemory, .disk: 158
-        // Top Processes keeps one extra row over the network profile for the
-        // unreadable-process note.
-        case .topProcesses: 142
+        case .topProcesses: 122
         case .network: 122
         // Fits its content rather than the grid: a title line and one reading,
         // with no trend graph to fill the rest. At 88 the lower third was empty.

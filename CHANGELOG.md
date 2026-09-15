@@ -11,19 +11,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A Top Processes card on the dashboard names the five heaviest readable
   processes by CPU rate and the five by resident memory at all times,
   refreshing at the sampling interval like the other live readings, so the
-  first place to look is visible without leaving the dashboard. A column with
-  no measurable consumers says so — MEASURING while the first reading warms
-  up, NONE when nothing readable drew on the resource, UNAVAILABLE when the
-  scan failed — instead of leaving blank space. Enumeration is a public
-  `sysctl kern.proc` read, wider than `proc_listallpids`, and processes that
-  refuse inspection — sandboxed helpers and other-user daemons such as
-  WindowServer, which no unprivileged call can measure — are still named in
-  the card's unreadable note instead of vanishing silently, because an
-  unranked WindowServer is a heat suspect, not an empty list. No helper, no
-  subprocess, no new permission. Rankings live only in the dashboard and are
-  never persisted to history, because process names do not belong in stored
-  archives. The card joins the movable dashboard sections and can be dragged
-  or reordered in Settings like the others.
+  first place to look is visible without leaving the dashboard. Clicking a
+  row selects it and Command-C copies the process name; Escape releases the
+  selection. A column with no measurable consumers says so — MEASURING while
+  the first reading warms up, NONE when nothing readable drew on the
+  resource, UNAVAILABLE when the scan failed — instead of leaving blank
+  space. Enumeration is a public `sysctl kern.proc` read, wider than
+  `proc_listallpids`, so the scan covers the whole process table; sandboxed
+  helpers and other-user daemons that refuse inspection are omitted rather
+  than shown as zero, because macOS keeps their CPU and memory figures
+  private without privileges. No helper, no subprocess, no new permission.
+  Rankings live only in the dashboard and are never persisted to history,
+  because process names do not belong in stored archives. The card joins the
+  movable dashboard sections and can be dragged or reordered in Settings
+  like the others.
 
 ## [0.7.0] - 2026-09-09
 

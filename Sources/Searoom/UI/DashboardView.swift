@@ -36,6 +36,8 @@ final class DashboardView: NSView {
     private var dragCandidate: DragCandidate?
     private var pendingUnitRegion: UnitRegion?
     private var activeDrag: ActiveDrag?
+    private var processRowRegions: [ProcessRowRegion] = []
+    private var selectedProcess: SelectedProcess?
 
     /// Far enough that a click that wobbles is still a click.
     private static let dragThreshold: CGFloat = 4
@@ -122,6 +124,8 @@ final class DashboardView: NSView {
         graphCache = nil
         livePresentation = nil
         trendRefreshPolicy.reset()
+        selectedProcess = nil
+        processRowRegions = []
         NSCursor.arrow.set()
     }
 
@@ -188,6 +192,7 @@ final class DashboardView: NSView {
             selfRect: selfRect,
             sample: sample
         )
+        processRowRegions = makeProcessRowRegions(layout: layout)
         let needsGraphs = graphRegions.contains { needsToDraw($0.rect) }
         let graphs = needsGraphs
             ? cachedGraphs(
@@ -228,7 +233,6 @@ final class DashboardView: NSView {
 
         if needsToDraw(topProcessesRect) { drawTopProcessesCard(
             rect: topProcessesRect,
-            sample: sample,
             theme: theme
         ) }
 
@@ -423,6 +427,7 @@ final class DashboardView: NSView {
                 cycleUnits(region)
                 return
             }
+            updateProcessSelection(at: convert(event.locationInWindow, from: nil))
             super.mouseUp(with: event)
             return
         }
@@ -441,6 +446,15 @@ final class DashboardView: NSView {
 
     override func cancelOperation(_ sender: Any?) {
         guard activeDrag != nil else {
+            // Escape also releases a selected process row, the way a text
+            // selection drops.
+            if selectedProcess != nil {
+                selectedProcess = nil
+                if let cardRect = currentLayout().rect(for: .topProcesses) {
+                    invalidateVisible(cardRect.insetBy(dx: 2, dy: 5))
+                }
+                return
+            }
             super.cancelOperation(sender)
             return
         }
@@ -495,18 +509,62 @@ final class DashboardView: NSView {
         }
 
         clearHover()
-        if unitRegions.contains(where: { $0.hitRect.contains(point) }) {
+        if processRowRegions.contains(where: { $0.rect.contains(point) }) {
+            NSCursor.iBeam.set()
+        } else if unitRegions.contains(where: { $0.hitRect.contains(point) }) {
             NSCursor.pointingHand.set()
         }
     }
 
     override func mouseExited(with event: NSEvent) {
         clearHover()
+        NSCursor.arrow.set()
     }
 
     override func scrollWheel(with event: NSEvent) {
         clearHover()
         super.scrollWheel(with: event)
+    }
+
+    /// Command-C puts the selected process name on the pasteboard. The key
+    /// is handled here because the dashboard has no Edit menu item to route
+    /// the standard copy: action through.
+    private func copySelectedProcessName() {
+        guard let selected = selectedProcess,
+              let name = processName(pid: selected.pid, column: selected.column) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(name, forType: .string)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == .command, event.charactersIgnoringModifiers == "c" {
+            copySelectedProcessName()
+            return
+        }
+        interpretKeyEvents([event])
+    }
+
+    /// Clicking a process row selects it; clicking anywhere else clears the
+    /// selection, the way a text view deselects. The press stays ambiguous
+    /// until release, so a click that turned into a card drag never selects.
+    private func updateProcessSelection(at point: NSPoint) {
+        let hit = processRowRegions.first { $0.rect.contains(point) }
+        let target = hit.map { SelectedProcess(pid: $0.pid, column: $0.column) }
+        guard target != selectedProcess else { return }
+        selectedProcess = target
+        guard let cardRect = currentLayout().rect(for: .topProcesses) else { return }
+        invalidateVisible(cardRect.insetBy(dx: 2, dy: 5))
+        if let target, let name = processName(pid: target.pid, column: target.column) {
+            setAccessibilityHelp("\(name) selected. Press Command-C to copy the process name.")
+        }
+    }
+
+    private func processName(pid: Int32, column: ProcessColumn) -> String? {
+        switch column {
+        case .cpu: model.topProcesses.byCPU.first { $0.pid == pid }?.name
+        case .memory: model.topProcesses.byMemory.first { $0.pid == pid }?.name
+        }
     }
 
     private func drawHeader(sample: SystemSample, theme: SearoomTheme) {
@@ -692,8 +750,9 @@ final class DashboardView: NSView {
     /// The top five processes by CPU and by resident memory, always visible.
     /// The ranking arrives on the collector's cadence, which follows the
     /// sample interval, so unlike the graph cards it is not redrawn per
-    /// sample, only when the ranking itself changes.
-    private func drawTopProcessesCard(rect: NSRect, sample: SystemSample, theme: SearoomTheme) {
+    /// sample, only when the ranking itself changes. A clicked row selects
+    /// the process; Command-C copies its name.
+    private func drawTopProcessesCard(rect: NSRect, theme: SearoomTheme) {
         drawCardFrame(rect, theme: theme)
         drawText(
             "TOP PROCESSES",
@@ -706,22 +765,10 @@ final class DashboardView: NSView {
         NSRect(x: rect.midX, y: rect.minY + 32, width: 1, height: rect.height - 44).fill()
 
         let ranking = model.topProcesses
-        let note = topProcessesUnreadableNote(ranking)
-        if !note.isEmpty {
-            drawText(
-                note,
-                in: NSRect(
-                    x: rect.minX + 10,
-                    y: rect.maxY - 18,
-                    width: rect.width - 20,
-                    height: 12
-                ),
-                font: SearoomFont.metric(7),
-                color: theme.subdued
-            )
-        }
-        let columnTop = rect.minY + 46
-        let rowHeight: CGFloat = 14
+        let columns = (
+            cpu: Self.processColumnRect(cardRect: rect, column: .cpu),
+            memory: Self.processColumnRect(cardRect: rect, column: .memory)
+        )
         let labelFont = SearoomFont.metric(7)
         let rowFont = SearoomFont.metric(8)
         drawText(
@@ -738,40 +785,22 @@ final class DashboardView: NSView {
         )
         drawColumn(
             ranking.byCPU,
+            column: .cpu,
             emptyReason: topProcessesEmptyReason(ranking),
-            column: NSRect(
-                x: rect.minX + 10,
-                y: columnTop,
-                width: rect.midX - rect.minX - 18,
-                height: rect.maxY - columnTop - (note.isEmpty ? 6 : 24)
-            ),
-            rowHeight: rowHeight,
+            rect: columns.cpu,
             font: rowFont,
             value: { MetricFormat.unboundedPercent($0.cpuUsage) },
             theme: theme
         )
         drawColumn(
             ranking.byMemory,
+            column: .memory,
             emptyReason: topProcessesEmptyReason(ranking),
-            column: NSRect(
-                x: rect.midX + 12,
-                y: columnTop,
-                width: rect.maxX - rect.midX - 22,
-                height: rect.maxY - columnTop - (note.isEmpty ? 6 : 24)
-            ),
-            rowHeight: rowHeight,
+            rect: columns.memory,
             font: rowFont,
             value: { MetricFormat.compactBytes($0.residentBytes) },
             theme: theme
         )
-    }
-
-    /// One subdued line naming what the scan could not read, so the rankings
-    /// never imply the list is complete when it is not.
-    private func topProcessesUnreadableNote(_ ranking: ProcessRanking) -> String {
-        guard !ranking.unreadable.isEmpty else { return "" }
-        let names = ranking.unreadable.prefix(4).joined(separator: " · ")
-        return "\(ranking.unreadable.count) UNREADABLE: \(names)"
     }
 
     private func topProcessesEmptyReason(_ ranking: ProcessRanking) -> String {
@@ -779,6 +808,60 @@ final class DashboardView: NSView {
         case .warmingUp: "MEASURING"
         case .unavailable: "UNAVAILABLE"
         default: "NONE"
+        }
+    }
+
+    private func drawColumn(
+        _ entries: [RankedProcess],
+        column: ProcessColumn,
+        emptyReason: String,
+        rect: NSRect,
+        font: NSFont,
+        value: (RankedProcess) -> String,
+        theme: SearoomTheme
+    ) {
+        guard !entries.isEmpty else {
+            drawText(
+                emptyReason,
+                at: NSPoint(
+                    x: rect.minX,
+                    y: Self.centredTextY(in: rect, font: SearoomFont.metric(8))
+                ),
+                font: SearoomFont.metric(8),
+                color: theme.subdued
+            )
+            return
+        }
+        let selected = selectedProcess
+        for (index, entry) in entries.enumerated() {
+            let rowRect = NSRect(
+                x: rect.minX,
+                y: rect.minY + Self.processRowHeight * CGFloat(index),
+                width: rect.width,
+                height: Self.processRowHeight
+            )
+            if selected == SelectedProcess(pid: entry.pid, column: column) {
+                theme.ink.withAlphaComponent(0.12).setFill()
+                rowRect.fill()
+            }
+            drawText(
+                entry.name,
+                in: NSRect(
+                    x: rect.minX,
+                    y: rowRect.minY,
+                    width: rect.width - 30,
+                    height: Self.processRowHeight
+                ),
+                font: font,
+                color: theme.ink
+            )
+            drawText(
+                value(entry),
+                alignedRightAt: rect.maxX,
+                y: rowRect.minY,
+                font: font,
+                color: theme.ink
+            )
         }
     }
 
@@ -1347,6 +1430,54 @@ final class DashboardView: NSView {
         )
     }
 
+    private static let processRowHeight: CGFloat = 15
+    private static let processColumnTopInset: CGFloat = 46
+
+    private static func processColumnRect(cardRect: NSRect, column: ProcessColumn) -> NSRect {
+        let top = cardRect.minY + processColumnTopInset
+        switch column {
+        case .cpu:
+            return NSRect(
+                x: cardRect.minX + 10,
+                y: top,
+                width: cardRect.midX - cardRect.minX - 18,
+                height: cardRect.maxY - top - 6
+            )
+        case .memory:
+            return NSRect(
+                x: cardRect.midX + 12,
+                y: top,
+                width: cardRect.maxX - cardRect.midX - 22,
+                height: cardRect.maxY - top - 6
+            )
+        }
+    }
+
+    /// Hit rects for the process rows, derived from the same geometry the
+    /// card draws, rebuilt on every draw pass so clicks land on what is
+    /// visible.
+    private func makeProcessRowRegions(layout: DashboardLayout) -> [ProcessRowRegion] {
+        guard let cardRect = layout.rect(for: .topProcesses) else { return [] }
+        let ranking = model.topProcesses
+        var regions: [ProcessRowRegion] = []
+        for (column, entries) in [(ProcessColumn.cpu, ranking.byCPU), (.memory, ranking.byMemory)] {
+            let columnRect = Self.processColumnRect(cardRect: cardRect, column: column)
+            for (index, entry) in entries.enumerated() {
+                regions.append(ProcessRowRegion(
+                    pid: entry.pid,
+                    column: column,
+                    rect: NSRect(
+                        x: columnRect.minX,
+                        y: columnRect.minY + Self.processRowHeight * CGFloat(index),
+                        width: columnRect.width,
+                        height: Self.processRowHeight
+                    )
+                ))
+            }
+        }
+        return regions
+    }
+
     private func graphRect(for cardRect: NSRect) -> NSRect {
         NSRect(
             x: cardRect.minX + 10,
@@ -1695,9 +1826,6 @@ final class DashboardView: NSView {
             phrase += " Highest memory use is \(memory.name) holding "
                 + "\(MetricFormat.bytes(memory.residentBytes)) of RAM."
         }
-        if !ranking.unreadable.isEmpty {
-            phrase += " \(ranking.unreadable.count) processes could not be read."
-        }
         return phrase
     }
 
@@ -1795,6 +1923,26 @@ final class DashboardView: NSView {
         let target: DashboardUnitTarget
         let hitRect: NSRect
         let displayRect: NSRect
+    }
+
+    /// Which ranking a process row belongs to, so a process appearing in both
+    /// lists can be selected in either.
+    private enum ProcessColumn: Equatable {
+        case cpu
+        case memory
+    }
+
+    private struct ProcessRowRegion {
+        let pid: Int32
+        let column: ProcessColumn
+        let rect: NSRect
+    }
+
+    /// The process row the user last clicked, keyed by pid and column so it
+    /// survives ranking updates and still clears itself if the process dies.
+    private struct SelectedProcess: Equatable {
+        let pid: Int32
+        let column: ProcessColumn
     }
 
     private struct HoverState: Equatable {
