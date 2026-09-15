@@ -4,7 +4,7 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-09-15
 
 ### Added
 
@@ -42,6 +42,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   branches. Percentages, temperatures, fan rpm, and compact readings below
   the gigabyte and megabyte scales keep their integer treatment, where a
   decimal would be noise.
+
+### Fixed
+
+- The build is warning-free again. Its only deprecation warning came from an
+  inert `copiesOnScroll` assignment that has had no effect on any macOS this
+  app supports; dropping it changes no behavior, and the opaque document
+  views keep the copy behavior the comment beside it described.
 
 ## [0.7.0] - 2026-09-09
 
