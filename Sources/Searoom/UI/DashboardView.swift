@@ -1968,11 +1968,10 @@ final class SearoomScrollView: NSScrollView {
         borderType = .noBorder
         drawsBackground = false
         // Both document views paint their whole bounds and declare themselves
-        // opaque, which lets AppKit blit what is already on screen and redraw
-        // only the strip a scroll exposes. A layer-backed clip view would be
+        // opaque, so a scroll copies what is already on screen and redraws
+        // only the strip it exposes. A layer-backed clip view would be
         // smooth too, but at the cost of a backing store the size of the whole
         // scrolled document, which is not a trade this app should make.
-        contentView.copiesOnScroll = true
     }
 }
 
