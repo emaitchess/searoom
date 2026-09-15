@@ -703,7 +703,12 @@ final class DashboardView: NSView {
         )
 
         let ranking = model.topProcesses
-        guard max(sample.cpuPressureLevel, sample.memoryPressureLevel) >= .elevated else {
+        // The gate is the overall level, not CPU and memory alone: a
+        // GPU-heavy inference run heats the Mac while CPU stays moderate, and
+        // macOS thermal pressure is the signal that heat is actually
+        // building. The card lists the CPU and memory consumers regardless of
+        // which signal tripped.
+        guard sample.overallPressureLevel >= .elevated else {
             // Below the threshold there is nothing to explain; the state word
             // pairs with the header dot's color for the same level.
             drawText(
@@ -1237,7 +1242,7 @@ final class DashboardView: NSView {
             ownProcess: "\(MetricFormat.unboundedPercent(sample.processCPUUsage))"
                 + "-\(MetricFormat.compactBytes(sample.processMemoryBytes, unit: processMemoryUnit))"
                 + "-\(model.settings.sampleInterval)",
-            topProcessesGate: max(sample.cpuPressureLevel, sample.memoryPressureLevel),
+            topProcessesGate: sample.overallPressureLevel,
             topProcesses: model.topProcesses,
             pressures: [
                 sample.cpuPressureLevel,
@@ -1652,7 +1657,7 @@ final class DashboardView: NSView {
         let selfImpact = "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
             + "\(processMemory) memory. "
             + "Click a unit-bearing metric to change its display unit."
-        let topProcesses = Self.spokenTopProcesses(gate: max(sample.cpuPressureLevel, sample.memoryPressureLevel), ranking: model.topProcesses)
+        let topProcesses = Self.spokenTopProcesses(gate: sample.overallPressureLevel, ranking: model.topProcesses)
         setAccessibilityValue(
             "System \(sample.overallPressureLevel.systemLabel)\(sustainedPhrase). "
                 + "CPU \(MetricFormat.percent(sample.cpuUsage)). "

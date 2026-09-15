@@ -9,15 +9,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - A Top Processes card on the dashboard names the five heaviest readable
-  processes by CPU rate and the five by resident memory whenever CPU or memory
-  pressure reaches elevated, so the first place to look is visible without
-  leaving the dashboard. The scan uses public libproc calls on the existing
-  sampling engine's five-second cadence — no helper, no subprocess, no new
-  permission — and a process that refuses the read is omitted rather than shown
-  as zero. Rankings live only in the dashboard and are never persisted to
-  history, because process names do not belong in stored archives. The card
-  joins the movable dashboard sections and can be dragged or reordered in
-  Settings like the others.
+  processes by CPU rate and the five by resident memory whenever overall
+  pressure — CPU, memory, thermal, or GPU — reaches elevated, so the first
+  place to look is visible without leaving the dashboard. Gating on the
+  overall level means a GPU-heavy run that heats the Mac while CPU stays
+  moderate still surfaces its CPU and memory consumers. The scan uses public
+  libproc calls on the existing sampling engine's five-second cadence — no
+  helper, no subprocess, no new permission — and a process that refuses the
+  read is omitted rather than shown as zero. Rankings live only in the
+  dashboard and are never persisted to history, because process names do not
+  belong in stored archives. The card joins the movable dashboard sections
+  and can be dragged or reordered in Settings like the others.
 
 ## [0.7.0] - 2026-09-09
 
