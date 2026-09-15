@@ -4,6 +4,19 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-09-15
+
+### Added
+
+- The `sample`, `watch` and `status` documents carry an additive optional
+  `sample.topProcesses` block: the five heaviest readable processes by CPU
+  rate and the five by resident memory, refreshed at the requested interval
+  like every other rate. The CLI primes per-PID baselines across the
+  requested interval, so the first primed sample already carries real
+  per-process CPU rates. Persisted samples encode without the key, `history`
+  documents are untouched, and the frozen 41-field `--dump-sample` shape
+  stays exactly that.
+
 ## [0.8.0] - 2026-09-15
 
 ### Added
