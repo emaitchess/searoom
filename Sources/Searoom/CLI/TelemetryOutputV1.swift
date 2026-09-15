@@ -61,6 +61,43 @@ struct TelemetrySourceV1: Encodable, Equatable {
     }
 }
 
+/// One process in the sample's ranking. `cpuUsage` is CPU seconds per wall
+/// second and can exceed 1.0 on multiple cores, the same unclamped quantity
+/// as the observer metric. Names are display names, not command lines.
+struct TopProcessV1: Encodable, Equatable {
+    let pid: Int
+    let name: String
+    let cpuUsage: Double
+    let residentBytes: UInt64
+}
+
+/// The five heaviest readable processes by CPU and by resident memory. The
+/// block is additive and optional within schema v1: the app's dashboard-only
+/// history never carries it, so persisted samples encode without the key.
+struct TopProcessesV1: Encodable, Equatable {
+    let byCPU: [TopProcessV1]
+    let byMemory: [TopProcessV1]
+    let availability: String
+
+    static func make(from ranking: ProcessRanking) -> TopProcessesV1 {
+        func entries(_ source: [RankedProcess]) -> [TopProcessV1] {
+            source.map { process in
+                TopProcessV1(
+                    pid: Int(process.pid),
+                    name: process.name,
+                    cpuUsage: process.cpuUsage,
+                    residentBytes: process.residentBytes
+                )
+            }
+        }
+        return TopProcessesV1(
+            byCPU: entries(ranking.byCPU),
+            byMemory: entries(ranking.byMemory),
+            availability: ranking.availability.rawValue
+        )
+    }
+}
+
 struct TelemetrySampleV1: Encodable, Equatable {
     let timestamp: Date
     let uptimeSeconds: Double
@@ -73,6 +110,7 @@ struct TelemetrySampleV1: Encodable, Equatable {
     let power: Power
     let system: System
     let observer: Observer
+    let topProcesses: TopProcessesV1?
 
     struct CPU: Encodable, Equatable {
         let usageFraction: Double?
@@ -173,9 +211,12 @@ struct TelemetrySampleV1: Encodable, Equatable {
 
     /// Projects one stored sample into the public v1 shape. `observerKind`
     /// distinguishes live CLI sampling from values persisted by the app.
+    /// Persisted samples carry no process ranking, so `topProcesses` defaults
+    /// to nil and encodes without the key; live sampling passes one in.
     static func make(
         from sample: SystemSample,
-        observerKind: String
+        observerKind: String,
+        topProcesses: TopProcessesV1? = nil
     ) -> TelemetrySampleV1 {
         let availability = sample.availability
 
@@ -279,7 +320,8 @@ struct TelemetrySampleV1: Encodable, Equatable {
                 residentMemoryBytes: value(sample.processMemoryBytes, availability.processMemory),
                 cpuAvailability: availability.processCPU.rawValue,
                 memoryAvailability: availability.processMemory.rawValue
-            )
+            ),
+            topProcesses: topProcesses
         )
     }
 }
@@ -791,6 +833,7 @@ extension TelemetrySampleV1 {
         case power
         case system
         case observer
+        case topProcesses
     }
 
     func encode(to encoder: Encoder) throws {
@@ -806,6 +849,34 @@ extension TelemetrySampleV1 {
         try container.encode(power, forKey: .power)
         try container.encode(system, forKey: .system)
         try container.encode(observer, forKey: .observer)
+        try container.encodeIfPresent(topProcesses, forKey: .topProcesses)
+    }
+}
+
+extension TopProcessV1 {
+    private enum Keys: String, CodingKey {
+        case pid, name, cpuUsage, residentBytes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(pid, forKey: .pid)
+        try container.encode(name, forKey: .name)
+        try container.encode(cpuUsage, forKey: .cpuUsage)
+        try container.encode(residentBytes, forKey: .residentBytes)
+    }
+}
+
+extension TopProcessesV1 {
+    private enum Keys: String, CodingKey {
+        case byCPU, byMemory, availability
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(byCPU, forKey: .byCPU)
+        try container.encode(byMemory, forKey: .byMemory)
+        try container.encode(availability, forKey: .availability)
     }
 }
 

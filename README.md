@@ -314,7 +314,8 @@ samples without changing preferences, shortcuts or launch-at-login state.
   refuse inspection are omitted rather than shown as zero, because macOS keeps
   their CPU and memory figures private without privileges, and `ps` reads those
   only because it is setuid root. A column with no measurable consumers says so
-  instead of inventing entries. Rankings live only in the dashboard view and are
+  instead of inventing entries. The ranking is ephemeral — it appears in the
+  dashboard and in the CLI's `sample`, `watch` and `status` output, and it is
   never persisted to history: process names stay out of stored archives. GPU and
   temperature attribution per process has no public macOS API and is deliberately
   not attempted.

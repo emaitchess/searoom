@@ -9,6 +9,7 @@ enum CLIRunner {
     /// sleeping. `SystemMetricsCollector` conforms unchanged.
     protocol Sampling: AnyObject {
         func collect(forceDiskCounterRefresh: Bool) -> SystemSample
+        func collectProcessRanking(interval: TimeInterval) -> ProcessRanking
     }
 
     protocol Stdout: Sendable {
@@ -320,16 +321,18 @@ enum CLIRunner {
 
     // MARK: - Live sampling
 
-    /// One priming sample installs every rate baseline, then one requested
-    /// interval of monotonic time passes, then a forced second disk-counter
-    /// read completes the disk baseline so the emitted sample carries
-    /// meaningful disk I/O.
+    /// One priming sample installs every rate baseline — CPU, disk, and the
+    /// process ranking alike — then one requested interval of monotonic time
+    /// passes, then a forced second disk-counter read completes the disk
+    /// baseline so the emitted sample carries meaningful disk I/O and real
+    /// per-process CPU rates across the same window.
     static func collectPrimedSample(
         collector: Sampling,
         intervalSeconds: Int,
         waiter: Waiter
     ) -> SystemSample {
         _ = collector.collect(forceDiskCounterRefresh: false)
+        _ = collector.collectProcessRanking(interval: Double(intervalSeconds))
         waiter.wait(seconds: Double(intervalSeconds))
         return collector.collect(forceDiskCounterRefresh: true)
     }
@@ -349,8 +352,9 @@ enum CLIRunner {
             intervalSeconds: seconds,
             waiter: environment.waiter
         )
+        let ranking = TopProcessesV1.make(from: environment.collector.collectProcessRanking(interval: Double(seconds)))
         let document = SampleDocumentV1(
-            sample: .make(from: raw, observerKind: "searoom-cli"),
+            sample: .make(from: raw, observerKind: "searoom-cli", topProcesses: ranking),
             intervalSeconds: seconds,
             generatedAt: environment.now(),
             version: environment.version
@@ -368,6 +372,9 @@ enum CLIRunner {
         let clock = ContinuousClock()
         environment.signals.install()
         _ = environment.collector.collect(forceDiskCounterRefresh: false)
+        // The ranking primes with the sample, so the first emitted line
+        // already carries per-process CPU rates across the first interval.
+        _ = environment.collector.collectProcessRanking(interval: Double(seconds))
         var deadline = clock.now
         var emitted = 0
 
@@ -387,8 +394,9 @@ enum CLIRunner {
             // The first emitted line needs the forced disk-counter read; later
             // lines use the normal five-second cache cadence.
             let raw = environment.collector.collect(forceDiskCounterRefresh: emitted == 0)
+            let ranking = TopProcessesV1.make(from: environment.collector.collectProcessRanking(interval: Double(seconds)))
             let document = SampleDocumentV1(
-                sample: .make(from: raw, observerKind: "searoom-cli"),
+                sample: .make(from: raw, observerKind: "searoom-cli", topProcesses: ranking),
                 intervalSeconds: seconds,
                 generatedAt: environment.now(),
                 version: environment.version
@@ -420,9 +428,10 @@ enum CLIRunner {
         let archive = readHistoryForStatus(environment: environment)
         let derived = Self.makeDerived(raw)
         let sustainedContext = Self.makeSustainedContext(raw: raw, archive: archive, now: environment.now())
+        let ranking = TopProcessesV1.make(from: environment.collector.collectProcessRanking(interval: Double(seconds)))
 
         let document = StatusDocumentV1(
-            sample: .make(from: raw, observerKind: "searoom-cli"),
+            sample: .make(from: raw, observerKind: "searoom-cli", topProcesses: ranking),
             raw: raw,
             limiting: Self.makeLimiting(raw),
             derived: derived,

@@ -8,10 +8,13 @@ final class CLISamplingTests: XCTestCase {
     private final class SpyCollector: CLIRunner.Sampling, @unchecked Sendable {
         private let lock = NSLock()
         private var requests: [Bool] = []
+        private var rankingIntervals: [Double] = []
         private var samples: [SystemSample]
+        private var rankings: [ProcessRanking]
 
-        init(samples: [SystemSample] = []) {
+        init(samples: [SystemSample] = [], rankings: [ProcessRanking] = []) {
             self.samples = samples
+            self.rankings = rankings
         }
 
         func collect(forceDiskCounterRefresh: Bool) -> SystemSample {
@@ -24,10 +27,26 @@ final class CLISamplingTests: XCTestCase {
             return samples.removeFirst()
         }
 
+        func collectProcessRanking(interval: TimeInterval) -> ProcessRanking {
+            lock.lock()
+            defer { lock.unlock() }
+            rankingIntervals.append(interval)
+            if rankings.isEmpty {
+                return ProcessRanking.empty
+            }
+            return rankings.removeFirst()
+        }
+
         var recordedRequests: [Bool] {
             lock.lock()
             defer { lock.unlock() }
             return requests
+        }
+
+        var recordedRankingIntervals: [Double] {
+            lock.lock()
+            defer { lock.unlock() }
+            return rankingIntervals
         }
     }
 
@@ -222,7 +241,83 @@ final class CLISamplingTests: XCTestCase {
         let waiter = FakeWaiter()
         _ = CLIRunner.collectPrimedSample(collector: collector, intervalSeconds: 7, waiter: waiter)
         XCTAssertEqual(collector.recordedRequests, [false, true])
+        XCTAssertEqual(collector.recordedRankingIntervals, [7])
         XCTAssertEqual(waiter.recordedWaits, [7])
+    }
+
+    private func populatedRanking() -> ProcessRanking {
+        ProcessRanking(
+            byCPU: [RankedProcess(pid: 100, name: "worker", cpuUsage: 0.5, residentBytes: 1_000_000)],
+            byMemory: [RankedProcess(pid: 200, name: "hoarder", cpuUsage: 0, residentBytes: 40_000_000_000)],
+            availability: .available
+        )
+    }
+
+    private func rankingObject(fromLine line: String) throws -> [String: Any] {
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        let sample = try XCTUnwrap(object["sample"] as? [String: Any])
+        return try XCTUnwrap(sample["topProcesses"] as? [String: Any])
+    }
+
+    func testSampleCarriesTheProcessRankingAcrossThePrimedInterval() throws {
+        let collector = SpyCollector(samples: [
+            SystemSample.placeholder,
+            SystemSample.placeholder
+        ], rankings: [
+            ProcessRanking.empty,
+            populatedRanking()
+        ])
+        let stdout = CapturingStdout()
+        let environment = makeEnvironment(collector: collector, waiter: FakeWaiter(), signals: ScriptedSignals([]), stdout: stdout)
+        XCTAssertEqual(CLIRunner.run(.sample(interval: 5), json: false, pretty: false, environment: environment), 0)
+        // Priming plus emission, both at the requested interval.
+        XCTAssertEqual(collector.recordedRankingIntervals, [5, 5])
+        XCTAssertEqual(stdout.lines.count, 1)
+        let ranking = try rankingObject(fromLine: stdout.lines[0])
+        let byCPU = try XCTUnwrap(ranking["byCPU"] as? [[String: Any]])
+        XCTAssertEqual(byCPU.first?["name"] as? String, "worker")
+        XCTAssertEqual(byCPU.first?["cpuUsage"] as? Double, 0.5)
+        XCTAssertEqual(ranking["availability"] as? String, "available")
+    }
+
+    func testWatchPrimesTheRankingWithTheSample() throws {
+        let collector = SpyCollector(samples: [
+            SystemSample.placeholder,
+            SystemSample.placeholder
+        ], rankings: [
+            ProcessRanking.empty,
+            populatedRanking()
+        ])
+        let stdout = CapturingStdout()
+        let environment = makeEnvironment(collector: collector, waiter: FakeWaiter(), signals: ScriptedSignals([]), stdout: stdout)
+        XCTAssertEqual(CLIRunner.run(.watch(interval: 2, count: 1), json: false, pretty: false, environment: environment), 0)
+        XCTAssertEqual(collector.recordedRankingIntervals, [2, 2])
+        let ranking = try rankingObject(fromLine: stdout.lines[0])
+        let byMemory = try XCTUnwrap(ranking["byMemory"] as? [[String: Any]])
+        XCTAssertEqual(byMemory.first?["name"] as? String, "hoarder")
+    }
+
+    func testStatusCarriesTheProcessRanking() throws {
+        let collector = SpyCollector(samples: [
+            SystemSample.placeholder,
+            SystemSample.placeholder
+        ], rankings: [
+            ProcessRanking.empty,
+            populatedRanking()
+        ])
+        let stdout = CapturingStdout()
+        let environment = makeEnvironment(
+            collector: collector,
+            waiter: FakeWaiter(),
+            signals: ScriptedSignals([]),
+            stdout: stdout
+        )
+        XCTAssertEqual(CLIRunner.run(.status(interval: nil), json: false, pretty: false, environment: environment), 0)
+        XCTAssertEqual(stdout.lines.count, 1)
+        let ranking = try rankingObject(fromLine: stdout.lines[0])
+        XCTAssertEqual(ranking["availability"] as? String, "available")
+        let byCPU = try XCTUnwrap(ranking["byCPU"] as? [[String: Any]])
+        XCTAssertEqual(byCPU.first?["pid"] as? Int, 100)
     }
 
     func testStatusUsesSharedDerivationsAndStaleHistoryReason() throws {

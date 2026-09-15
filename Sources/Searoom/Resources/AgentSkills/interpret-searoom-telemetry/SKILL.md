@@ -34,6 +34,7 @@ Use the supplied Searoom sample or screenshot to explain what is observed, what 
 5. Keep macOS thermal pressure separate from direct temperature. A temperature source of `battery` is the battery-pack sensor, not CPU/package temperature.
 6. Treat missing temperature, fan, battery, and GPU fields as expected best-effort unavailability. Do not convert missing data into a failure state.
 7. Include Searoom's own CPU and resident-memory readings when assessing observer cost. In CLI output `observer.kind` is `searoom-cli` (this describes the CLI process, not the menu-bar app); in persisted history it is `searoom-app`. Process CPU may exceed 100 percent when multiple cores are used.
+8. Read `sample.topProcesses` to name the likeliest consumers. `byCPU` ranks the five heaviest readable processes by CPU rate and `byMemory` the five by resident memory; a process CPU rate is CPU seconds per wall second and can exceed 1.0 on multiple cores. Live `sample`, `watch` and `status` documents carry the block; persisted history does not. Sandboxed helpers and other-user processes that refuse inspection are omitted, never shown as zero, so a missing name is not evidence that nothing is running.
 
 Searoom's utilization-derived levels are nominal below 70 percent, elevated from 70 to below 85 percent, constrained from 85 to below 95 percent, and critical at 95 percent or above. The macOS system memory-pressure state may raise the final memory level.
 

@@ -121,6 +121,41 @@ final class TelemetryOutputTests: XCTestCase {
         )
     }
 
+    private func rankedSample(_ ranking: ProcessRanking) -> TelemetrySampleV1 {
+        TelemetrySampleV1.make(
+            from: .placeholder,
+            observerKind: "searoom-cli",
+            topProcesses: TopProcessesV1.make(from: ranking)
+        )
+    }
+
+    func testSampleCarriesTheProcessRanking() throws {
+        let sample = rankedSample(ProcessRanking(
+            byCPU: [RankedProcess(pid: 100, name: "worker", cpuUsage: 0.5, residentBytes: 1_000_000)],
+            byMemory: [RankedProcess(pid: 200, name: "hoarder", cpuUsage: 0, residentBytes: 40_000_000_000)],
+            availability: .available
+        ))
+        let encoded = try TelemetryOutputV1.encode(sample, pretty: false)
+        let object = try jsonDictionary(encoded)
+        let ranking = try XCTUnwrap(object["topProcesses"] as? [String: Any])
+        let byCPU = try XCTUnwrap(ranking["byCPU"] as? [[String: Any]])
+        XCTAssertEqual(byCPU.first?["name"] as? String, "worker")
+        XCTAssertEqual(byCPU.first?["cpuUsage"] as? Double, 0.5)
+        let byMemory = try XCTUnwrap(ranking["byMemory"] as? [[String: Any]])
+        XCTAssertEqual(byMemory.first?["residentBytes"] as? Int, 40_000_000_000)
+        XCTAssertEqual(ranking["availability"] as? String, "available")
+    }
+
+    /// The compatibility guarantee is byte-observable: a persisted sample has
+    /// no ranking, so version-1 history documents must not grow the key.
+    func testPersistedSampleOmitsTheRankingKey() throws {
+        let encoded = try TelemetryOutputV1.encode(
+            TelemetrySampleV1.make(from: .placeholder, observerKind: "searoom-app"),
+            pretty: false
+        )
+        XCTAssertNil(try jsonDictionary(encoded)["topProcesses"])
+    }
+
     func testNonFiniteValuesCannotProduceInvalidJSON() throws {
         var sample = SystemSample.placeholder
         let data = try PropertyListEncoder().encode(sample)
