@@ -20,11 +20,15 @@ enum SelfTest {
             "selectable byte unit formatting"
         )
         check(
+            MetricFormat.compactBytes(16 * 1_073_741_824) == "16.00G",
+            "two-decimal compact gigabyte formatting"
+        )
+        check(
             MetricFormat.temperature(25, unit: .fahrenheit) == "77°F",
             "selectable temperature unit formatting"
         )
         check(
-            MetricFormat.rate(1_500, unit: .kilobytes) == "1.5 KB/s",
+            MetricFormat.rate(1_500, unit: .kilobytes) == "1.50 KB/s",
             "selectable rate unit formatting"
         )
         check(MetricFormat.fixedField("8%", columns: 4) == "  8%", "fixed metric field")

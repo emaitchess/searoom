@@ -624,14 +624,15 @@ final class SearoomTests: XCTestCase {
     }
 
     func testMetricFormatting() {
-        XCTAssertEqual(MetricFormat.compactBytes(16 * 1_073_741_824), "16G")
+        XCTAssertEqual(MetricFormat.compactBytes(16 * 1_073_741_824), "16.00G")
+        XCTAssertEqual(MetricFormat.compactBytes(953 * 1_048_576), "953M")
         XCTAssertEqual(
             MetricFormat.bytePair(
                 8 * 1_073_741_824,
                 16 * 1_073_741_824,
                 unit: .gigabytes
             ),
-            "8.0/16GB"
+            "8.00/16.00GB"
         )
         XCTAssertEqual(
             MetricFormat.bytePair(
@@ -644,7 +645,8 @@ final class SearoomTests: XCTestCase {
         XCTAssertEqual(MetricFormat.temperature(25, unit: .celsius), "25°C")
         XCTAssertEqual(MetricFormat.temperature(25, unit: .fahrenheit), "77°F")
         XCTAssertEqual(MetricFormat.rate(1_500, unit: .bytes), "1500 B/s")
-        XCTAssertEqual(MetricFormat.rate(1_500, unit: .kilobytes), "1.5 KB/s")
+        XCTAssertEqual(MetricFormat.rate(1_500, unit: .kilobytes), "1.50 KB/s")
+        XCTAssertEqual(MetricFormat.rate(2_500_000, unit: .megabytes), "2.50 MB/s")
         XCTAssertEqual(MetricFormat.percent(0.427), "43%")
         XCTAssertEqual(MetricFormat.unboundedPercent(1.25), "125%")
         XCTAssertEqual(MetricFormat.fixedField("8%", columns: 4), "  8%")

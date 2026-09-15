@@ -43,18 +43,24 @@ enum MetricRateUnit: CaseIterable, Equatable, Sendable {
 }
 
 enum MetricFormat {
+    /// Every reading that carries a decimal point carries exactly two decimal
+    /// places, in every unit and on every surface, so "12.5G" and "1.5 GB/s"
+    /// never truncate a fraction the dashboard's own detail rows render more
+    /// precisely. Whole-number displays stay whole: percentages, temperatures,
+    /// fan rpm, and compact readings below the gigabyte/megabyte scale keep
+    /// their integer treatment, where a decimal would be noise.
     static func bytes(_ value: UInt64) -> String {
         let gib = Double(value) / 1_073_741_824
-        if gib >= 1 { return String(format: gib >= 10 ? "%.1f GB" : "%.2f GB", gib) }
+        if gib >= 1 { return String(format: "%.2f GB", gib) }
         let mib = Double(value) / 1_048_576
-        if mib >= 1 { return String(format: "%.1f MB", mib) }
+        if mib >= 1 { return String(format: "%.2f MB", mib) }
         let kib = Double(value) / 1_024
         return String(format: "%.0f KB", kib)
     }
 
     static func compactBytes(_ value: UInt64) -> String {
         let gib = Double(value) / 1_073_741_824
-        if gib >= 1 { return String(format: gib >= 10 ? "%.0fG" : "%.1fG", gib) }
+        if gib >= 1 { return String(format: "%.2fG", gib) }
         let mib = Double(value) / 1_048_576
         return String(format: "%.0fM", mib)
     }
@@ -63,7 +69,7 @@ enum MetricFormat {
         switch unit {
         case .gigabytes:
             let gib = Double(value) / 1_073_741_824
-            return String(format: gib >= 10 ? "%.1f GB" : "%.2f GB", gib)
+            return String(format: "%.2f GB", gib)
         case .megabytes:
             return String(format: "%.0f MB", Double(value) / 1_048_576)
         }
@@ -79,8 +85,8 @@ enum MetricFormat {
 
     static func rate(_ bytesPerSecond: Double) -> String {
         let value = max(0, bytesPerSecond)
-        if value >= 1_000_000_000 { return String(format: "%.1f GB/s", value / 1_000_000_000) }
-        if value >= 1_000_000 { return String(format: "%.1f MB/s", value / 1_000_000) }
+        if value >= 1_000_000_000 { return String(format: "%.2f GB/s", value / 1_000_000_000) }
+        if value >= 1_000_000 { return String(format: "%.2f MB/s", value / 1_000_000) }
         if value >= 1_000 { return String(format: "%.0f KB/s", value / 1_000) }
         return String(format: "%.0f B/s", value)
     }
@@ -93,9 +99,9 @@ enum MetricFormat {
         case .bytes:
             return String(format: "%.0f B/s", value)
         case .kilobytes:
-            return String(format: "%.1f KB/s", value / 1_000)
+            return String(format: "%.2f KB/s", value / 1_000)
         case .megabytes:
-            return String(format: "%.1f MB/s", value / 1_000_000)
+            return String(format: "%.2f MB/s", value / 1_000_000)
         case .gigabytes:
             return String(format: "%.2f GB/s", value / 1_000_000_000)
         }
@@ -103,8 +109,8 @@ enum MetricFormat {
 
     static func compactRate(_ bytesPerSecond: Double) -> String {
         let value = max(0, bytesPerSecond)
-        if value >= 1_000_000_000 { return String(format: "%.1fG", value / 1_000_000_000) }
-        if value >= 1_000_000 { return String(format: "%.1fM", value / 1_000_000) }
+        if value >= 1_000_000_000 { return String(format: "%.2fG", value / 1_000_000_000) }
+        if value >= 1_000_000 { return String(format: "%.2fM", value / 1_000_000) }
         if value >= 1_000 { return String(format: "%.0fK", value / 1_000) }
         return String(format: "%.0fB", value)
     }
@@ -173,7 +179,7 @@ enum MetricFormat {
         switch unit {
         case .gigabytes:
             let gib = Double(value) / 1_073_741_824
-            return String(format: gib >= 10 ? "%.0f" : "%.1f", gib)
+            return String(format: "%.2f", gib)
         case .megabytes:
             return String(format: "%.0f", Double(value) / 1_048_576)
         }
