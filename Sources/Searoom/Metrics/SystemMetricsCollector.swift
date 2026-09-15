@@ -147,11 +147,12 @@ final class SystemMetricsCollector {
         )
     }
 
-    /// The process ranking is self-throttled inside its collector and must be
-    /// read on the engine's serial queue next to `collect`, because its
-    /// per-PID baselines are queue-confined state.
-    func collectProcessRanking() -> ProcessRanking {
-        topProcesses.read()
+    /// The process ranking is self-throttled inside its collector on a
+    /// deadline that follows the sample interval, and must be read on the
+    /// engine's serial queue next to `collect`, because its per-PID baselines
+    /// are queue-confined state.
+    func collectProcessRanking(interval: TimeInterval) -> ProcessRanking {
+        topProcesses.read(interval: interval)
     }
 }
 
@@ -179,7 +180,9 @@ final class MetricsEngine: @unchecked Sendable {
             timer.setEventHandler { [weak self] in
                 guard let self else { return }
                 let sample = autoreleasepool { collector.collect() }
-                let processes = autoreleasepool { collector.collectProcessRanking() }
+                let processes = autoreleasepool {
+                    collector.collectProcessRanking(interval: repeatingInterval)
+                }
                 DispatchQueue.main.async { onSample(sample, processes) }
             }
             self.timer = timer

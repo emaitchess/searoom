@@ -69,9 +69,9 @@ struct ProcessRanking: Equatable, Sendable {
 
 /// Ranks processes by CPU and resident memory using only public libproc calls,
 /// unprivileged, with no subprocess. One `proc_pidinfo` syscall per process on
-/// a five-second deadline; names are read for the surviving entries only.
+/// a deadline that follows the requested sample interval; names are read for
+/// the surviving entries only.
 final class TopProcessCollector {
-    private static let cadence = Duration.seconds(5)
     /// `proc_pidpath` documents 4 * MAXPATHLEN (4096) as its buffer maximum.
     private static let pathBufferSize = 4_096
     /// `proc_name` returns at most 2 * MAXCOMLEN (32) bytes.
@@ -83,10 +83,13 @@ final class TopProcessCollector {
     private var cachedRanking = ProcessRanking.empty
     private var nextRead: ContinuousClock.Instant?
 
-    func read() -> ProcessRanking {
+    /// Returns a fresh scan once the requested interval has elapsed and the
+    /// cached ranking otherwise, so the card updates at the sample rate
+    /// without ever scanning faster than the engine ticks.
+    func read(interval: TimeInterval) -> ProcessRanking {
         let now = clock.now
         guard nextRead.map({ now >= $0 }) ?? true else { return cachedRanking }
-        nextRead = now.advanced(by: Self.cadence)
+        nextRead = now.advanced(by: .seconds(max(1, interval)))
 
         let hadBaseline = previousInstant != nil
         var elapsed: Double = 0

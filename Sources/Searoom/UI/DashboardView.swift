@@ -689,10 +689,10 @@ final class DashboardView: NSView {
         }
     }
 
-    /// The top five processes by CPU and by resident memory, shown only while
-    /// CPU or memory pressure is elevated or worse. The ranking arrives on the
-    /// collector's five-second cadence, so unlike the live cards it is not
-    /// redrawn per sample, only when the ranking itself changes.
+    /// The top five processes by CPU and by resident memory, always visible.
+    /// The ranking arrives on the collector's cadence, which follows the
+    /// sample interval, so unlike the graph cards it is not redrawn per
+    /// sample, only when the ranking itself changes.
     private func drawTopProcessesCard(rect: NSRect, sample: SystemSample, theme: SearoomTheme) {
         drawCardFrame(rect, theme: theme)
         drawText(
@@ -702,30 +702,10 @@ final class DashboardView: NSView {
             color: theme.subdued
         )
 
-        let ranking = model.topProcesses
-        // The gate is the overall level, not CPU and memory alone: a
-        // GPU-heavy inference run heats the Mac while CPU stays moderate, and
-        // macOS thermal pressure is the signal that heat is actually
-        // building. The card lists the CPU and memory consumers regardless of
-        // which signal tripped.
-        guard sample.overallPressureLevel >= .elevated else {
-            // Below the threshold there is nothing to explain; the state word
-            // pairs with the header dot's color for the same level.
-            drawText(
-                "NOMINAL",
-                at: NSPoint(
-                    x: rect.minX + 10,
-                    y: Self.centredTextY(in: rect, font: SearoomFont.metric(9))
-                ),
-                font: SearoomFont.metric(9),
-                color: theme.subdued
-            )
-            return
-        }
-
         theme.ink.withAlphaComponent(0.22).setFill()
         NSRect(x: rect.midX, y: rect.minY + 32, width: 1, height: rect.height - 44).fill()
 
+        let ranking = model.topProcesses
         let columnTop = rect.minY + 46
         let rowHeight: CGFloat = 15
         let labelFont = SearoomFont.metric(7)
@@ -782,7 +762,10 @@ final class DashboardView: NSView {
         guard !entries.isEmpty else {
             drawText(
                 emptyReason,
-                at: NSPoint(x: column.minX, y: column.minY),
+                at: NSPoint(
+                    x: column.minX,
+                    y: Self.centredTextY(in: column, font: SearoomFont.metric(8))
+                ),
                 font: SearoomFont.metric(8),
                 color: theme.subdued
             )
@@ -1242,7 +1225,6 @@ final class DashboardView: NSView {
             ownProcess: "\(MetricFormat.unboundedPercent(sample.processCPUUsage))"
                 + "-\(MetricFormat.compactBytes(sample.processMemoryBytes, unit: processMemoryUnit))"
                 + "-\(model.settings.sampleInterval)",
-            topProcessesGate: sample.overallPressureLevel,
             topProcesses: model.topProcesses,
             pressures: [
                 sample.cpuPressureLevel,
@@ -1298,8 +1280,7 @@ final class DashboardView: NSView {
             ))
         }
         if let topProcesses = layout.rect(for: .topProcesses),
-           previous.topProcessesGate != current.topProcessesGate
-                || previous.topProcesses != current.topProcesses {
+           previous.topProcesses != current.topProcesses {
             invalidateVisible(topProcesses.insetBy(dx: 2, dy: 5))
         }
 
@@ -1657,7 +1638,7 @@ final class DashboardView: NSView {
         let selfImpact = "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
             + "\(processMemory) memory. "
             + "Click a unit-bearing metric to change its display unit."
-        let topProcesses = Self.spokenTopProcesses(gate: sample.overallPressureLevel, ranking: model.topProcesses)
+        let topProcesses = Self.spokenTopProcesses(ranking: model.topProcesses)
         setAccessibilityValue(
             "System \(sample.overallPressureLevel.systemLabel)\(sustainedPhrase). "
                 + "CPU \(MetricFormat.percent(sample.cpuUsage)). "
@@ -1672,11 +1653,7 @@ final class DashboardView: NSView {
 
     /// One sentence naming the leading CPU and memory consumers, because a
     /// VoiceOver pass through five rows twice would be hard to sit through.
-    private static func spokenTopProcesses(
-        gate: PressureLevel,
-        ranking: ProcessRanking
-    ) -> String {
-        guard gate >= .elevated, gate != .unavailable else { return "" }
+    private static func spokenTopProcesses(ranking: ProcessRanking) -> String {
         var phrase = ""
         if let cpu = ranking.byCPU.first {
             phrase += " Highest CPU use is \(cpu.name) at "
@@ -1803,7 +1780,6 @@ final class DashboardView: NSView {
         let info: String
         let extras: String
         let ownProcess: String
-        let topProcessesGate: PressureLevel
         let topProcesses: ProcessRanking
         let pressures: [PressureLevel]
     }
