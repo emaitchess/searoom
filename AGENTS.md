@@ -73,6 +73,7 @@ MetricsEngine utility queue
 - The sample interval is clamped to at least one second and uses timer leeway to avoid unnecessary wakeups.
 - `SystemMetricsCollector` and its subcollectors are stateful. Rate metrics require previous counters and a monotonic timestamp, so they must stay on the engine's serial queue.
 - Disk, thermal/fan, and GPU reads are cached on staggered five-, six-, and seven-second monotonic deadlines. Battery data and disk capacity are cached for 30 seconds; process count for 60 seconds. GPU service discovery is retained across reads and negatively cached for 60 seconds when unavailable.
+- The process ranking is read beside `collect` on the engine's serial queue, self-throttled to a deadline that follows the requested sample interval. Enumeration is a bulk `sysctl kern.proc` read with one `proc_pidinfo` probe per process; per-PID baselines are queue-confined collector state, and display names are resolved only for entries that survive ranking.
 - `AppModel` is `@MainActor`. It is the sole owner of current UI state, settings, and in-memory history.
 - Every haptic goes through `Haptics.tap(_:enabled:)` with `settings.hapticsEnabled`. Do not call `NSHapticFeedbackManager` directly: the gate is what keeps a new detent from ignoring the user's preference. Feedback belongs on gestures and controls that cross a detent, not on button clicks, and anything fired from a continuous gesture must be driven by a change in the underlying value rather than by the event, and floored if that value can change per pixel.
 - Trend history uses the dependency-free `RingBuffer`, with constant-time front expiry and append. Convert it to a contiguous array only at explicit persistence or interoperability boundaries.
@@ -123,6 +124,7 @@ All fractional utilization and pressure values use the closed range `0...1`. Cla
 - Low Power Mode is read from `ProcessInfo.isLowPowerModeEnabled`; it is a system state, not a Searoom-derived pressure signal.
 - Sustained pressure is derived from retained history: the time since the oldest sample still holding the current overall level. It is window-bounded, hidden below one minute, and suffixed with `+` when the run spans every retained sample.
 - Searoom process CPU is elapsed process CPU time divided by wall time. It can exceed `1.0` when multiple cores are used, so do not apply the system utilization clamp to it without changing its meaning.
+- Top Processes ranks the five heaviest readable processes by CPU rate and by resident memory. A process CPU rate is CPU seconds per wall second and can exceed `1.0`, the same unclamped quantity as the Searoom observer metric. Enumeration is a bulk `sysctl kern.proc` read; processes that refuse the probe are omitted, never shown as zero. The ranking lives beside the sample in `AppModel` display state and is never persisted.
 
 Pressure thresholds are centralized in `PressureLevel.from(utilization:)`: 70% elevated, 85% constrained, and 95% critical. Any formula or threshold change requires tests and matching documentation in `README.md` and relevant UI help.
 
@@ -237,7 +239,7 @@ That development command may access npm; it is not a runtime dependency.
 - Avoid force unwraps in collectors, persistence, and sensor parsing.
 - Handle `@unknown default` for system enums that Apple may extend.
 - Keep units visible in names (`Bytes`, `PerSecond`, `Celsius`, `rpm`) and timestamps explicit.
-- Centralize user-visible numeric formatting in `MetricFormat`.
+- Centralize user-visible numeric formatting in `MetricFormat`. A reading shown with a decimal point shows exactly two decimal places; integer displays stay integers.
 - Avoid logging on every failed best-effort read; unsupported sensors are an expected steady state.
 - In C, initialize ABI structs, validate data sizes and types, bound arrays, and release every acquired IOKit object.
 - Keep the C API narrow and Swift-friendly. New undocumented SMC keys require a comment, plausible bounds, and verification on identified hardware.

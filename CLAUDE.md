@@ -73,7 +73,7 @@ swift build --disable-sandbox
 
 ### One sampling pipeline
 
-`MetricsEngine` (defined at the bottom of `Metrics/SystemMetricsCollector.swift`, not its own file) owns a single serial utility-QoS `DispatchSourceTimer` on `app.searoom.metrics`. It drives one `SystemMetricsCollector`, which owns every stateful subcollector, produces an immutable `SystemSample`, and hops to the main queue.
+`MetricsEngine` (defined at the bottom of `Metrics/SystemMetricsCollector.swift`, not its own file) owns a single serial utility-QoS `DispatchSourceTimer` on `app.searoom.metrics`. It drives one `SystemMetricsCollector`, which owns every stateful subcollector, produces an immutable `SystemSample` plus a `ProcessRanking`, and hops to the main queue.
 
 ```
 MetricsEngine timer -> SystemMetricsCollector -> SystemSample -> @MainActor AppModel
@@ -86,11 +86,11 @@ The CLI (`Sources/Searoom/CLI`) runs outside this pipeline by design. `CLIRunner
 
 ### Cadence is tiered by API cost
 
-`SystemMetricsCollector.collect()` reads CPU, memory, and network every tick. It caches disk, thermal/fan, and GPU behind staggered monotonic deadlines of five, six, and seven seconds so their expensive work does not land in one burst. Three collectors gate themselves internally: `BatteryCollector` and `DiskCapacityCollector` at 30 seconds and `ProcessCollector`'s process count at 60 seconds. `GPUCollector` retains discovered IORegistry services and backs off discovery for 60 seconds when telemetry is unsupported. Adding a metric means choosing a tier — do not put an expensive read on the per-tick path.
+`SystemMetricsCollector.collect()` reads CPU, memory, and network every tick. It caches disk, thermal/fan, and GPU behind staggered monotonic deadlines of five, six, and seven seconds so their expensive work does not land in one burst. Three collectors gate themselves internally: `BatteryCollector` and `DiskCapacityCollector` at 30 seconds and `ProcessCollector`'s process count at 60 seconds. `TopProcessCollector` gates itself on a deadline that follows the requested sample interval, so it costs at most one table scan per tick. `GPUCollector` retains discovered IORegistry services and backs off discovery for 60 seconds when telemetry is unsupported. Adding a metric means choosing a tier — do not put an expensive read on the per-tick path.
 
 ### State ownership
 
-`AppModel` is `@MainActor` and is the sole owner of the current sample, bounded history, and settings. History is stored in the dependency-free `RingBuffer`, which provides constant-time append and front expiry. Convert it to a contiguous array only for explicit persistence or interoperability boundaries.
+`AppModel` is `@MainActor` and is the sole owner of the current sample, the process ranking, bounded history, and settings. History is stored in the dependency-free `RingBuffer`, which provides constant-time append and front expiry. Convert it to a contiguous array only for explicit persistence or interoperability boundaries. The ranking is display state only and never enters history.
 
 `AppModel` broadcasts `.searoomSampleUpdated` and `.searoomSettingsUpdated` with `object: model`. `AppDelegate` is the sample observer: it always updates the status item, but refreshes the dashboard only while `popover.isShown` is true. `DashboardView` must not observe or poll the model independently. The popover, dashboard controller, and Settings window are created lazily and released after closing; `viewWillAppear()` forces one fresh dashboard/trend presentation when the popover opens.
 
@@ -103,7 +103,7 @@ Keep collectors free of AppKit and views free of system calls.
 
 Both `AppSettings` and `SystemSample` hand-write `init(from:)` and `CodingKeys` rather than relying on the synthesized decoder. `AppSettings` defaults every field. `SystemSample` uses plain `decode` for fields that version-1 archives already contain and `decodeIfPresent` with a default only for fields added since — `swapInPerSecond`, `swapOutPerSecond`, `isLowPowerModeEnabled`, `memorySystemPressureLevel`, and the `availability` metadata, which decodes a missing block as all-`legacyUnknown`. Follow that pattern: a plain `decode` for a key absent from existing archives rejects the entire history. Adding a field requires all five of stored property, initializer default, coding key, decode fallback, and encoder entry.
 
-`AppSettings.customMenuBarMetrics` decodes as `[String]` and then `compactMap`s into `MenuBarMetric`, so metric names written by a future build are dropped instead of throwing. `MenuBarMetric.normalized(_:)` preserves the first three unique metrics and falls back to `MenuBarMetric.defaults` when empty; call it on any path that accepts user-chosen metrics. Sampling intervals and history durations are also normalized against their supported whitelists before they can affect timers or memory bounds. `hasCompletedLaunchAtLoginPrompt` defaults to false for a fresh `AppSettings()` but decodes missing legacy values as true, preventing upgrades from being prompted as new installs.
+`AppSettings.customMenuBarMetrics` decodes as `[String]` and then `compactMap`s into `MenuBarMetric`, so metric names written by a future build are dropped instead of throwing. `MenuBarMetric.normalized(_:)` preserves the first three unique metrics and falls back to `MenuBarMetric.defaults` when empty; call it on any path that accepts user-chosen metrics. Sampling intervals and history durations are also normalized against their supported whitelists before they can affect timers or memory bounds. `dashboardSectionOrder` is normalized on decode, and an order that matches a retired default — including pre-top-processes archives that had the card appended by normalization — is migrated to the current default, because a never-reordered archive should adopt the shipped arrangement while a deliberate reordering is left alone. `hasCompletedLaunchAtLoginPrompt` defaults to false for a fresh `AppSettings()` but decodes missing legacy values as true, preventing upgrades from being prompted as new installs.
 
 ### Menu-bar rendering
 

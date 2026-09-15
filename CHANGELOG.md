@@ -8,6 +8,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A Top Processes card on the dashboard names the five heaviest readable
+  processes by CPU rate and the five by resident memory at all times,
+  refreshing at the sampling interval like the other live readings, so the
+  first place to look is visible without leaving the dashboard. It sits
+  behind the six metric cards in the shipped order, and a settings archive
+  that never reordered anything is migrated onto that arrangement while a
+  deliberate reordering is left alone. Clicking a row selects it and
+  Command-C copies the process name; Escape releases the selection. A column
+  with no measurable consumers says so — MEASURING while the first reading
+  warms up, NONE when nothing readable drew on the resource, UNAVAILABLE
+  when the scan failed — instead of leaving blank space. Enumeration is a
+  public `sysctl kern.proc` read, wider than `proc_listallpids`, so the scan
+  covers the whole process table; sandboxed helpers and other-user daemons
+  that refuse inspection are omitted rather than shown as zero, because
+  macOS keeps their CPU and memory figures private without privileges. No
+  helper, no subprocess, no new permission. Rankings live only in the
+  dashboard and are never persisted to history, because process names do
+  not belong in stored archives. The card joins the movable dashboard
+  sections and can be dragged or reordered in Settings like the others.
 - CPU/package temperature now reports on M5 Pro Macs. The SMC temperature
   probe gains the `Tp04`, `Tp08` and `Tp0C` keys, which carry the M5 Pro's
   package sensors as `flt` payloads that track load between roughly 52 and
@@ -15,25 +34,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the probe order, so each generation still finds its own sensor, and the
   reading keeps its `CPU PACKAGE` source label.
 
-### Added
+### Changed
 
-- A Top Processes card on the dashboard names the five heaviest readable
-  processes by CPU rate and the five by resident memory at all times,
-  refreshing at the sampling interval like the other live readings, so the
-  first place to look is visible without leaving the dashboard. Clicking a
-  row selects it and Command-C copies the process name; Escape releases the
-  selection. A column with no measurable consumers says so — MEASURING while
-  the first reading warms up, NONE when nothing readable drew on the
-  resource, UNAVAILABLE when the scan failed — instead of leaving blank
-  space. Enumeration is a public `sysctl kern.proc` read, wider than
-  `proc_listallpids`, so the scan covers the whole process table; sandboxed
-  helpers and other-user daemons that refuse inspection are omitted rather
-  than shown as zero, because macOS keeps their CPU and memory figures
-  private without privileges. No helper, no subprocess, no new permission.
-  Rankings live only in the dashboard and are never persisted to history,
-  because process names do not belong in stored archives. The card joins the
-  movable dashboard sections and can be dragged or reordered in Settings
-  like the others.
+- Every reading shown with a decimal point now shows exactly two decimal
+  places, in every unit and on every surface: the accountability strip's
+  gigabyte RAM reading, selectable gigabyte pairs, and the fractional rate
+  branches. Percentages, temperatures, fan rpm, and compact readings below
+  the gigabyte and megabyte scales keep their integer treatment, where a
+  decimal would be noise.
 
 ## [0.7.0] - 2026-09-09
 

@@ -299,6 +299,10 @@ samples without changing preferences, shortcuts or launch-at-login state.
   otherwise Searoom shows the AppleSmartBattery pack sensor and labels it `BAT`.
   AppleSmartBattery registry values expressed in hundredths of a degree Celsius
   are normalized before display.
+- **Number formatting** shows exactly two decimal places for any reading that
+  carries a decimal point, in every unit and on every surface. Percentages,
+  temperatures, fan rpm, and compact readings below the gigabyte or megabyte
+  scale stay whole numbers, where a decimal would be noise.
 - **Top Processes** ranks the five heaviest readable processes by CPU rate and by
   resident memory and stays on the dashboard at all times, refreshing at the
   sampling interval like the other live readings. CPU rates come from cumulative
