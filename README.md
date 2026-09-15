@@ -30,7 +30,7 @@ unavailable.
 - Best-effort fan RPM
 - Disk read/write throughput and remaining capacity
 - How long the current overall pressure level has been held
-- Top five processes by CPU and by resident memory, always shown on the dashboard
+- Top five processes by CPU and by resident memory, always shown on the dashboard, with a note naming what it could not read
 - Uptime, process count, battery level, power source and Low Power Mode
 - Searoom's own CPU and resident-memory usage
 - Bounded dithered trend graphs for load-bearing metrics
@@ -304,13 +304,15 @@ samples without changing preferences, shortcuts or launch-at-login state.
   sampling interval like the other live readings. CPU rates come from cumulative
   process CPU-time deltas over one interval and can exceed 100 percent when a
   process uses several cores, the same unclamped quantity as the Searoom observer
-  metric. The scan uses public libproc calls with no helper, no subprocess, and no
-  extra permissions; processes that refuse the read are omitted rather than shown
-  as zero, so counts can differ from Activity Monitor, and a column with no
-  measurable consumers says so instead of inventing entries. Rankings live only in
-  the dashboard view and are never persisted to history: process names stay out of
-  stored archives. GPU and temperature attribution per process has no public macOS
-  API and is deliberately not attempted.
+  metric. Enumeration is a public `sysctl kern.proc` read, wider than
+  `proc_listallpids`, so sandboxed helpers and other-user processes that refuse
+  inspection are still seen and named through their executable path in the card's
+  unreadable note — macOS keeps their CPU and memory figures private without
+  privileges, and `ps` reads those only because it is setuid root. A column with
+  no measurable consumers says so instead of inventing entries. Rankings live only
+  in the dashboard view and are never persisted to history: process names stay out
+  of stored archives. GPU and temperature attribution per process has no public
+  macOS API and is deliberately not attempted.
 
 ## License
 

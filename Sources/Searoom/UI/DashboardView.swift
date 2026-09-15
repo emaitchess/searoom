@@ -706,8 +706,22 @@ final class DashboardView: NSView {
         NSRect(x: rect.midX, y: rect.minY + 32, width: 1, height: rect.height - 44).fill()
 
         let ranking = model.topProcesses
+        let note = topProcessesUnreadableNote(ranking)
+        if !note.isEmpty {
+            drawText(
+                note,
+                in: NSRect(
+                    x: rect.minX + 10,
+                    y: rect.maxY - 18,
+                    width: rect.width - 20,
+                    height: 12
+                ),
+                font: SearoomFont.metric(7),
+                color: theme.subdued
+            )
+        }
         let columnTop = rect.minY + 46
-        let rowHeight: CGFloat = 15
+        let rowHeight: CGFloat = 14
         let labelFont = SearoomFont.metric(7)
         let rowFont = SearoomFont.metric(8)
         drawText(
@@ -725,7 +739,12 @@ final class DashboardView: NSView {
         drawColumn(
             ranking.byCPU,
             emptyReason: topProcessesEmptyReason(ranking),
-            column: NSRect(x: rect.minX + 10, y: columnTop, width: rect.midX - rect.minX - 18, height: rect.maxY - columnTop - 6),
+            column: NSRect(
+                x: rect.minX + 10,
+                y: columnTop,
+                width: rect.midX - rect.minX - 18,
+                height: rect.maxY - columnTop - (note.isEmpty ? 6 : 24)
+            ),
             rowHeight: rowHeight,
             font: rowFont,
             value: { MetricFormat.unboundedPercent($0.cpuUsage) },
@@ -734,12 +753,25 @@ final class DashboardView: NSView {
         drawColumn(
             ranking.byMemory,
             emptyReason: topProcessesEmptyReason(ranking),
-            column: NSRect(x: rect.midX + 12, y: columnTop, width: rect.maxX - rect.midX - 22, height: rect.maxY - columnTop - 6),
+            column: NSRect(
+                x: rect.midX + 12,
+                y: columnTop,
+                width: rect.maxX - rect.midX - 22,
+                height: rect.maxY - columnTop - (note.isEmpty ? 6 : 24)
+            ),
             rowHeight: rowHeight,
             font: rowFont,
             value: { MetricFormat.compactBytes($0.residentBytes) },
             theme: theme
         )
+    }
+
+    /// One subdued line naming what the scan could not read, so the rankings
+    /// never imply the list is complete when it is not.
+    private func topProcessesUnreadableNote(_ ranking: ProcessRanking) -> String {
+        guard !ranking.unreadable.isEmpty else { return "" }
+        let names = ranking.unreadable.prefix(4).joined(separator: " · ")
+        return "\(ranking.unreadable.count) UNREADABLE: \(names)"
     }
 
     private func topProcessesEmptyReason(_ ranking: ProcessRanking) -> String {
@@ -1662,6 +1694,9 @@ final class DashboardView: NSView {
         if let memory = ranking.byMemory.first {
             phrase += " Highest memory use is \(memory.name) holding "
                 + "\(MetricFormat.bytes(memory.residentBytes)) of RAM."
+        }
+        if !ranking.unreadable.isEmpty {
+            phrase += " \(ranking.unreadable.count) processes could not be read."
         }
         return phrase
     }

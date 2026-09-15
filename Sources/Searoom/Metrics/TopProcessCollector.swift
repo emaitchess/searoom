@@ -31,10 +31,15 @@ struct ProcessRanking: Equatable, Sendable {
     static let maximumCount = 5
     /// Before the first scan there is no data at all; memory arrives with the
     /// first read and CPU rates need one more, so the placeholder warms up.
-    static let empty = ProcessRanking(byCPU: [], byMemory: [], availability: .warmingUp)
+    static let empty = ProcessRanking(byCPU: [], byMemory: [], unreadable: [], availability: .warmingUp)
 
     let byCPU: [RankedProcess]
     let byMemory: [RankedProcess]
+    /// Names of the processes the scan could not read. Sandboxed helpers and
+    /// other-user processes refuse inspection without privileges, and some of
+    /// them, WindowServer above all, are exactly what heats a Mac; naming
+    /// them is what makes the blind spot visible instead of silent.
+    let unreadable: [String]
     let availability: ReadingAvailability
 
     /// Pure ranking shared by the collector, the self-test, and XCTest. The
@@ -67,10 +72,11 @@ struct ProcessRanking: Equatable, Sendable {
     }
 }
 
-/// Ranks processes by CPU and resident memory using only public libproc calls,
-/// unprivileged, with no subprocess. One `proc_pidinfo` syscall per process on
-/// a deadline that follows the requested sample interval; names are read for
-/// the surviving entries only.
+/// Ranks processes by CPU and resident memory using only public kernel calls,
+/// unprivileged, with no subprocess. Enumeration is a bulk `sysctl kern.proc`
+/// read, which covers processes that `proc_listallpids` hides, WindowServer
+/// among them; the readable ones get one `proc_pidinfo` syscall each, and the
+/// rest are named through `proc_pidpath` and reported as unreadable.
 final class TopProcessCollector {
     /// `proc_pidpath` documents 4 * MAXPATHLEN (4096) as its buffer maximum.
     private static let pathBufferSize = 4_096
@@ -79,6 +85,7 @@ final class TopProcessCollector {
 
     private var baselines: [Int32: Double] = [:]
     private var previousInstant: ContinuousClock.Instant?
+    private var table: [kinfo_proc] = []
     private let clock = ContinuousClock()
     private var cachedRanking = ProcessRanking.empty
     private var nextRead: ContinuousClock.Instant?
@@ -98,21 +105,21 @@ final class TopProcessCollector {
             elapsed = Double(delta.components.seconds) + Double(delta.components.attoseconds) / 1e18
         }
 
-        let pidCount = proc_listallpids(nil, 0)
-        guard pidCount > 0 else {
+        guard let (candidates, refusedNames) = scan(hadBaseline: hadBaseline, elapsed: elapsed) else {
             // A failed scan keeps the last successful baselines untouched, so
             // the next recovery read spans the whole gap, the same convention
             // as the disk counters.
-            cachedRanking = ProcessRanking(byCPU: [], byMemory: [], availability: .unavailable)
+            cachedRanking = ProcessRanking(
+                byCPU: [], byMemory: [], unreadable: [], availability: .unavailable
+            )
             return cachedRanking
         }
-
-        let candidates = scan(pidCount: pidCount, hadBaseline: hadBaseline, elapsed: elapsed)
         previousInstant = now
         let ranked = ProcessRanking.rankedPIDs(in: candidates)
         cachedRanking = ProcessRanking(
             byCPU: named(ranked.cpu, from: candidates),
             byMemory: named(ranked.memory, from: candidates),
+            unreadable: refusedNames.sorted(),
             availability: hadBaseline ? .available : .warmingUp
         )
         return cachedRanking
@@ -120,31 +127,51 @@ final class TopProcessCollector {
 
     /// One scan of the process table. Baselines are rebuilt into a fresh
     /// dictionary each pass, which both installs the next counters and drops
-    /// the entries of processes that have exited.
-    private func scan(pidCount: Int32, hadBaseline: Bool, elapsed: Double) -> [ProcessRanking.Candidate] {
-        var pids = [Int32](repeating: 0, count: Int(pidCount))
-        let filled = pids.withUnsafeMutableBufferPointer { buffer in
-            proc_listallpids(buffer.baseAddress, pidCount)
+    /// the entries of processes that have exited. Nil means the table itself
+    /// was unreadable; a process that refuses `proc_pidinfo` still arrives
+    /// through the table and is named for the unreadable note.
+    private func scan(hadBaseline: Bool, elapsed: Double) -> ([ProcessRanking.Candidate], Set<String>)? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL]
+        var needed = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &needed, nil, 0) == 0, needed > 0 else {
+            return nil
         }
-        guard filled > 0 else {
-            cachedRanking = ProcessRanking(byCPU: [], byMemory: [], availability: .unavailable)
-            return []
+        // The table is reused across scans and only regrown when the process
+        // count rises, so an ordinary scan allocates nothing.
+        let required = needed / MemoryLayout<kinfo_proc>.stride + 8
+        if table.count < required {
+            table = [kinfo_proc](repeating: kinfo_proc(), count: required)
         }
+        var size = table.count * MemoryLayout<kinfo_proc>.stride
+        let copied = table.withUnsafeMutableBufferPointer { buffer in
+            sysctl(&mib, u_int(mib.count), buffer.baseAddress, &size, nil, 0)
+        }
+        guard copied == 0 else { return nil }
+        let entryCount = size / MemoryLayout<kinfo_proc>.stride
 
-        let filledCount = Int(filled)
         let ownPID = getpid()
-        var nextBaselines = [Int32: Double](minimumCapacity: filledCount)
+        var nextBaselines = [Int32: Double](minimumCapacity: entryCount)
         var candidates: [ProcessRanking.Candidate] = []
-        candidates.reserveCapacity(filledCount)
-        for pid in pids[0..<filledCount] where pid > 0 && pid != ownPID {
+        var refusedNames = Set<String>()
+        candidates.reserveCapacity(entryCount)
+        for index in 0..<entryCount {
+            let pid = table[index].kp_proc.p_pid
+            guard pid > 0 && pid != ownPID else { continue }
+
             var info = proc_taskinfo()
-            let size = Int32(MemoryLayout<proc_taskinfo>.size)
+            let taskSize = Int32(MemoryLayout<proc_taskinfo>.size)
             let result = withUnsafeMutableBytes(of: &info) { raw in
-                proc_pidinfo(pid, PROC_PIDTASKINFO, 0, raw.baseAddress, size)
+                proc_pidinfo(pid, PROC_PIDTASKINFO, 0, raw.baseAddress, taskSize)
             }
-            // Other-user processes can refuse the read; skip them rather than
-            // fabricating a zero.
-            guard result == size else { continue }
+            // Sandboxed helpers and other-user processes refuse the read.
+            // Name them from their executable path, which the kernel still
+            // answers, instead of fabricating a zero or vanishing silently.
+            guard result == taskSize else {
+                if let name = Self.unreadableName(pid) {
+                    refusedNames.insert(name)
+                }
+                continue
+            }
 
             let cpuSeconds = Double(info.pti_total_user + info.pti_total_system) / 1_000_000
             var usage = 0.0
@@ -161,7 +188,24 @@ final class TopProcessCollector {
             ))
         }
         baselines = nextBaselines
-        return candidates
+        return (candidates, refusedNames)
+    }
+
+    /// Names a process that refuses inspection. `proc_pidpath` still answers
+    /// for them, which is what lets the unreadable note name WindowServer and
+    /// friends; `proc_name` covers whatever the path check refuses.
+    private static func unreadableName(_ pid: Int32) -> String? {
+        var path = [CChar](repeating: 0, count: pathBufferSize)
+        if proc_pidpath(pid, &path, UInt32(path.count)) > 0 {
+            let text = cString(path)
+            return text.isEmpty ? nil : (text as NSString).lastPathComponent
+        }
+        var short = [CChar](repeating: 0, count: nameBufferSize)
+        if proc_name(pid, &short, UInt32(short.count)) > 0 {
+            let text = cString(short)
+            return text.isEmpty ? nil : text
+        }
+        return nil
     }
 
     private func named(_ pids: [Int32], from pool: [ProcessRanking.Candidate]) -> [RankedProcess] {

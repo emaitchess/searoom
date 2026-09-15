@@ -14,13 +14,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first place to look is visible without leaving the dashboard. A column with
   no measurable consumers says so — MEASURING while the first reading warms
   up, NONE when nothing readable drew on the resource, UNAVAILABLE when the
-  scan failed — instead of leaving blank space. The scan uses public libproc
-  calls on the existing sampling engine — no helper, no subprocess, no new
-  permission — and a process that refuses the read is omitted rather than
-  shown as zero. Rankings live only in the dashboard and are never persisted
-  to history, because process names do not belong in stored archives. The
-  card joins the movable dashboard sections and can be dragged or reordered
-  in Settings like the others.
+  scan failed — instead of leaving blank space. Enumeration is a public
+  `sysctl kern.proc` read, wider than `proc_listallpids`, and processes that
+  refuse inspection — sandboxed helpers and other-user daemons such as
+  WindowServer, which no unprivileged call can measure — are still named in
+  the card's unreadable note instead of vanishing silently, because an
+  unranked WindowServer is a heat suspect, not an empty list. No helper, no
+  subprocess, no new permission. Rankings live only in the dashboard and are
+  never persisted to history, because process names do not belong in stored
+  archives. The card joins the movable dashboard sections and can be dragged
+  or reordered in Settings like the others.
 
 ## [0.7.0] - 2026-09-09
 
