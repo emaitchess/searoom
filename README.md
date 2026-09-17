@@ -292,6 +292,11 @@ samples without changing preferences, shortcuts or launch-at-login state.
   `ProcessInfo`; macOS may reduce CPU and GPU performance while it is enabled.
 - **Network throughput** aggregates active non-loopback interfaces; VPN or other
   virtual interfaces can make aggregate traffic differ from a physical-link view.
+  When macOS reports no usable network route (no Wi-Fi or Ethernet link), the
+  dashboard card overlays "NO INTERNET CONNECTION" over its trend instead of
+  reading the placeholder zero, and CLI readings are `null` with the `offline`
+  availability reason. Route detection observes system link state only; Searoom
+  still sends no traffic of its own.
 - **Temperature, fan and GPU sensors** use read-only, best-effort SMC/IORegistry
   access. Availability and key names vary by Mac and macOS release. No privileged
   helper or subprocess fallback is used.

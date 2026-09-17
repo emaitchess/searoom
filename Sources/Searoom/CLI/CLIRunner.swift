@@ -749,8 +749,9 @@ enum CLIRunner {
         Fractions use the closed range 0...1, byte sizes end in `Bytes`, rates end
         in `BytesPerSecond`, durations are seconds, and temperatures are Celsius.
         Unavailable readings are explicit `null` with an availability reason:
-        `available` (measured, zero means zero), `warmingUp` (no rate baseline yet),
-        `unavailable` (read failed), or `legacyUnknown` (persisted before metadata
+        `available` (measured, zero means zero), `warmingUp` (no rate baseline
+        yet), `unavailable` (read failed), `offline` (network I/O only: no
+        usable network route), or `legacyUnknown` (persisted before metadata
         existed). Utilization-derived pressure levels are nominal below 0.70,
         elevated from 0.70, constrained from 0.85, and critical from 0.95.
 

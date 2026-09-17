@@ -116,7 +116,7 @@ All fractional utilization and pressure values use the closed range `0...1`. Cla
 - Temperature selection prefers a validated CPU/package SMC reading. If that is unavailable, `BatteryCollector` may use the AppleSmartBattery pack sensor; dashboard detail and compact/menu-bar output must identify it as `BAT`.
 - `kIOPSTemperatureKey` values may already be Celsius, while AppleSmartBattery registry values can use hundredths of a degree Celsius (`2759` means `27.59°C`). Keep this normalization in `BatteryCollector.normalizeTemperature`; do not restore the former deci-Kelvin conversion.
 - Reject non-finite and implausible temperature representations instead of showing them. Any temperature conversion change needs regression cases for direct Celsius, hundredths Celsius, and invalid values in both the framework-independent self-test and XCTest source.
-- Network I/O aggregates active, non-loopback interfaces. Counter rollback yields zero for that interval.
+- Network I/O aggregates active, non-loopback interfaces. Counter rollback yields zero for that interval. A system `NWPathMonitor` route watch marks network I/O `offline` when macOS reports no usable network route; the route watch sends no traffic.
 - Disk I/O is a delta of IORegistry byte counters.
 - Swap I/O is a delta of Mach swap-in and swap-out page counters converted to bytes per second. The first read is a zero baseline and counter rollback yields zero for that interval.
 - Compressed memory is the compressor-page share of the working set and is already included in memory used. Compression and decompression rates are deltas of Mach page counters converted to bytes per second with the same first-read zero baseline and rollback handling as swap rates.

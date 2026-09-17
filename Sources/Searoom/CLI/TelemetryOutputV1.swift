@@ -220,11 +220,14 @@ struct TelemetrySampleV1: Encodable, Equatable {
     ) -> TelemetrySampleV1 {
         let availability = sample.availability
 
+        // Unavailable and offline readings are placeholders that must not be
+        // interpreted, so both encode as explicit null with their reason.
         func value<T>(_ reading: T, _ state: ReadingAvailability) -> T? {
-            state == .unavailable ? nil : reading
+            state == .unavailable || state == .offline ? nil : reading
         }
         func numeric(_ reading: Double, _ state: ReadingAvailability) -> Double? {
-            state == .unavailable ? nil : TelemetryOutputV1.finite(reading)
+            state == .unavailable || state == .offline
+                ? nil : TelemetryOutputV1.finite(reading)
         }
 
         let gpuWorkingSetRatio = sample.gpuMemoryPressure.flatMap(TelemetryOutputV1.finite)

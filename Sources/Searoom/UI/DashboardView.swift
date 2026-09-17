@@ -484,6 +484,7 @@ final class DashboardView: NSView {
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let region = graphRegions.first(where: { $0.rect.contains(point) }),
+           !(region.metric == .network && isNetworkOffline),
            !model.history.isEmpty {
             let fraction = min(1, max(0, (point.x - region.rect.minX) / max(1, region.rect.width)))
             let index = hoverSampleIndex(at: fraction)
@@ -745,6 +746,31 @@ final class DashboardView: NSView {
                 theme: theme
             )
         }
+
+        if sample.availability.networkIO == .offline {
+            drawNetworkOfflineOverlay(rect: rect, theme: theme)
+        }
+    }
+
+    /// When macOS reports no usable network route, the trend stays visible
+    /// beneath a paper scrim and the overlay carries the state in words, so a
+    /// quiet card reads as "cannot be connected" rather than as a measured
+    /// silence. Inset by the card's hairline so the frame stays crisp.
+    private func drawNetworkOfflineOverlay(rect: NSRect, theme: SearoomTheme) {
+        theme.paper.withAlphaComponent(0.82).setFill()
+        NSRect(x: rect.minX + 1, y: rect.minY + 1, width: rect.width - 2, height: rect.height - 2).fill()
+        let label = "NO INTERNET CONNECTION"
+        let font = fittedMetricFont(label, maximumSize: 9, minimumSize: 7.5, width: rect.width - 24)
+        let labelWidth = textSize(label, font: font).width
+        drawText(
+            label,
+            at: NSPoint(
+                x: rect.midX - labelWidth / 2,
+                y: Self.centredTextY(in: rect, font: font)
+            ),
+            font: font,
+            color: theme.subdued
+        )
     }
 
     /// The top five processes by CPU and by resident memory, always visible.
@@ -1170,6 +1196,12 @@ final class DashboardView: NSView {
         }
     }
 
+    /// The offline card already says why it is quiet, so hovering it offers
+    /// no scrub and no tooltip.
+    private var isNetworkOffline: Bool {
+        model.currentSample.availability.networkIO == .offline
+    }
+
     private func updateHoverOverlays() {
         guard let hoverState,
               !model.history.isEmpty else {
@@ -1192,6 +1224,7 @@ final class DashboardView: NSView {
         let visibleMetrics = hoverState.metric.synchronizedMetrics
         for metric in DashboardTrendMetric.allCases {
             guard visibleMetrics.contains(metric),
+                  !(metric == .network && isNetworkOffline),
                   let region = graphRegions.first(where: { $0.metric == metric }),
                   let overlay = hoverOverlays[metric] else {
                 hoverOverlays[metric]?.hide()
@@ -1326,6 +1359,7 @@ final class DashboardView: NSView {
             thermal: "\(MetricFormat.temperature(sample.temperatureCelsius, unit: temperatureUnit))-\(thermalDetail)-\(sample.thermalPressureLevel.rawValue)",
             network: "\(MetricFormat.rate(sample.networkDownloadPerSecond, unit: networkUnit))"
                 + "-\(MetricFormat.rate(sample.networkUploadPerSecond, unit: networkUnit))",
+            networkAvailability: sample.availability.networkIO,
             info: "\(fanText)-\(MetricFormat.uptime(sample.uptime))",
             extras: "\(MetricFormat.rate(sample.diskReadPerSecond, unit: diskUnit))"
                 + "-\(MetricFormat.rate(sample.diskWritePerSecond, unit: diskUnit))"
@@ -1377,6 +1411,11 @@ final class DashboardView: NSView {
         if previous.disk != current.disk { invalidateVisible(liveMetricRect(for: disk)) }
         if previous.network != current.network {
             invalidateVisible(NSRect(x: network.minX + 2, y: network.minY + 5, width: network.width - 4, height: 54))
+        }
+        if previous.networkAvailability != current.networkAvailability {
+            // The offline overlay covers the whole card, trend graph included,
+            // so it needs the full card rect rather than the readings strip.
+            invalidateVisible(network.insetBy(dx: 2, dy: 4))
         }
         if previous.info != current.info {
             invalidateVisible(info.insetBy(dx: 2, dy: 5))
@@ -1801,6 +1840,11 @@ final class DashboardView: NSView {
         let selfImpact = "Searoom uses \(MetricFormat.unboundedPercent(sample.processCPUUsage)) CPU and "
             + "\(processMemory) memory. "
             + "Click a unit-bearing metric to change its display unit."
+        let networkPhrase = if sample.availability.networkIO == .offline {
+            "Network is offline. "
+        } else {
+            ""
+        }
         let topProcesses = Self.spokenTopProcesses(ranking: model.topProcesses)
         setAccessibilityValue(
             "System \(sample.overallPressureLevel.systemLabel)\(sustainedPhrase). "
@@ -1809,6 +1853,7 @@ final class DashboardView: NSView {
                 + "GPU memory \(gpuMemory). "
                 + "Disk \(diskAvailable). "
                 + "Temperature \(temperature). "
+                + networkPhrase
                 + selfImpact
                 + topProcesses
         )
@@ -1960,6 +2005,7 @@ final class DashboardView: NSView {
         let disk: String
         let thermal: String
         let network: String
+        let networkAvailability: ReadingAvailability
         let info: String
         let extras: String
         let ownProcess: String

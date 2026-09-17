@@ -13,6 +13,10 @@ enum ReadingAvailability: String, Codable, Equatable, Sendable, CaseIterable {
     /// The system call, registry query, or sensor read failed. The numeric
     /// value is a placeholder and must not be interpreted.
     case unavailable
+    /// macOS reports no usable network route: no Wi-Fi or Ethernet link is
+    /// connected, so no traffic can flow. The numeric value is a placeholder
+    /// zero, not a measurement of silence. Used by network I/O only.
+    case offline
     /// The sample predates availability metadata, so the state is unknown.
     /// Persisted archives from before this field existed decode this way.
     case legacyUnknown

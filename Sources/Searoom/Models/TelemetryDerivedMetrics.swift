@@ -107,7 +107,7 @@ enum TelemetryDerivedMetrics {
     /// label describes saturation, not utilization.
     static func observerState(_ sample: SystemSample) -> String {
         switch sample.availability.processCPU {
-        case .unavailable: return "unavailable"
+        case .unavailable, .offline: return "unavailable"
         case .warmingUp: return "warmingUp"
         case .available, .legacyUnknown:
             return PressureLevel.from(utilization: min(1, max(0, sample.processCPUUsage))).outputLabel

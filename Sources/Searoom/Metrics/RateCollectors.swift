@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 import IOKit
+import Network
+import os
 
 struct NetworkReading {
     let download: Double
@@ -8,18 +10,45 @@ struct NetworkReading {
     let availability: ReadingAvailability
 }
 
+/// Observes whether macOS currently has a usable network route. It watches
+/// system link state only: it sends no traffic, opens no sockets, and records
+/// no address information, so Searoom stays local-only. The state is written
+/// from the monitor's queue and read from the engine's queue, so it is guarded
+/// by an unfair lock.
+private final class NetworkRouteMonitor: @unchecked Sendable {
+    private let monitor = NWPathMonitor()
+    private let usable = OSAllocatedUnfairLock(initialState: true)
+
+    init() {
+        monitor.pathUpdateHandler = { [usable] path in
+            usable.withLock { $0 = path.status != .unsatisfied }
+        }
+        monitor.start(queue: DispatchQueue(label: "app.searoom.network-route", qos: .utility))
+    }
+
+    deinit { monitor.cancel() }
+
+    /// True until the first path update arrives, so a slow monitor can never
+    /// fabricate an offline state at launch.
+    var hasUsableRoute: Bool { usable.withLock { $0 } }
+}
+
 final class NetworkCollector {
     private var previousReceived: UInt64?
     private var previousSent: UInt64?
     private var previousTime: ContinuousClock.Instant?
     private let clock = ContinuousClock()
+    private let routeMonitor = NetworkRouteMonitor()
 
     func read() -> NetworkReading {
+        // No usable route outranks every other state: an offline Mac cannot
+        // carry traffic, and the placeholder zero must not read as measured.
+        let offline: ReadingAvailability? = routeMonitor.hasUsableRoute ? nil : .offline
         var addressPointer: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&addressPointer) == 0, let firstAddress = addressPointer else {
             // A failed interface enumeration must not touch the baseline, so
             // recovery computes the rate across the whole failed gap.
-            return NetworkReading(download: 0, upload: 0, availability: .unavailable)
+            return NetworkReading(download: 0, upload: 0, availability: offline ?? .unavailable)
         }
         defer { freeifaddrs(addressPointer) }
 
@@ -49,20 +78,20 @@ final class NetworkCollector {
             previousTime = now
         }
         guard hadBaseline else {
-            return NetworkReading(download: 0, upload: 0, availability: .warmingUp)
+            return NetworkReading(download: 0, upload: 0, availability: offline ?? .warmingUp)
         }
         guard let previousReceived, let previousSent, let previousTime else {
-            return NetworkReading(download: 0, upload: 0, availability: .unavailable)
+            return NetworkReading(download: 0, upload: 0, availability: offline ?? .unavailable)
         }
         let duration = Double(previousTime.duration(to: now).components.seconds)
             + Double(previousTime.duration(to: now).components.attoseconds) / 1e18
         guard duration > 0 else {
-            return NetworkReading(download: 0, upload: 0, availability: .unavailable)
+            return NetworkReading(download: 0, upload: 0, availability: offline ?? .unavailable)
         }
         return NetworkReading(
             download: Double(received >= previousReceived ? received - previousReceived : 0) / duration,
             upload: Double(sent >= previousSent ? sent - previousSent : 0) / duration,
-            availability: .available
+            availability: offline ?? .available
         )
     }
 }

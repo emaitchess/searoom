@@ -83,6 +83,32 @@ final class TelemetryOutputTests: XCTestCase {
         XCTAssertEqual(gpu["availability"] as? String, "unavailable")
     }
 
+    /// Offline network readings are placeholder zeros by contract: they must
+    /// encode as explicit null with the `offline` reason, and the reason must
+    /// be inside the bundled schema's availability enum.
+    func testOfflineNetworkReadingsEncodeAsExplicitNull() throws {
+        var sample = SystemSample.placeholder
+        let data = try JSONEncoder().encode(sample)
+        var object = try jsonDictionary(data)
+        var availability = try XCTUnwrap(object["availability"] as? [String: Any])
+        availability["networkIO"] = "offline"
+        object["availability"] = availability
+        sample = try JSONDecoder().decode(SystemSample.self, from: JSONSerialization.data(withJSONObject: object))
+
+        let v1 = TelemetrySampleV1.make(from: sample, observerKind: "searoom-cli")
+        let encoded = try jsonDictionary(TelemetryOutputV1.encode(v1, pretty: false))
+        let network = try XCTUnwrap(encoded["network"] as? [String: Any])
+        XCTAssertTrue(network["downloadBytesPerSecond"] is NSNull)
+        XCTAssertTrue(network["uploadBytesPerSecond"] is NSNull)
+        XCTAssertEqual(network["availability"] as? String, "offline")
+        let definitions = try definitions()
+        let availabilityDef = try XCTUnwrap(definitions["availability"] as? [String: Any])
+        XCTAssertTrue(
+            try XCTUnwrap(availabilityDef["enum"] as? [Any]).contains(where: { $0 as? String == "offline" }),
+            "bundled schema must admit the offline reason"
+        )
+    }
+
     func testLegacyUnknownReadingsKeepValuesButAreFlagged() throws {
         let v1 = TelemetrySampleV1.make(from: SystemSample.placeholder, observerKind: "searoom-cli")
         let encoded = try jsonDictionary(TelemetryOutputV1.encode(v1, pretty: false))
