@@ -5,6 +5,7 @@ final class DashboardView: NSView {
     var onOpenSettings: (() -> Void)?
     var onOpenActivityMonitor: (() -> Void)?
     var onQuit: (() -> Void)?
+    var onEscape: (() -> Void)?
 
     private let model: AppModel
     private var settingsRect = NSRect.zero
@@ -453,6 +454,16 @@ final class DashboardView: NSView {
                 if let cardRect = currentLayout().rect(for: .topProcesses) {
                     invalidateVisible(cardRect.insetBy(dx: 2, dy: 5))
                 }
+                return
+            }
+            // With nothing left to cancel, Escape closes the dashboard. A click
+            // outside already does this, because the popover is transient, and
+            // Escape is the keyboard's version of the same gesture. It stays
+            // last in this cascade rather than becoming a key equivalent of its
+            // own: a window-level handler would consume the key before it ever
+            // reached here, and then Escape could no longer abandon a drag.
+            if let onEscape {
+                onEscape()
                 return
             }
             super.cancelOperation(sender)

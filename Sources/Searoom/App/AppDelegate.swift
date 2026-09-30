@@ -175,6 +175,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             self?.openActivityMonitor()
         }
         controller.dashboardView.onQuit = { NSApp.terminate(nil) }
+        // Escape is the keyboard's dismissal, reached through the dashboard's
+        // own cancel cascade rather than a key equivalent: an accessory app has
+        // no menu bar of its own to route it through, and the popover's window
+        // belongs to AppKit. Closing it leaves the app in the menu bar, which is
+        // the point — Escape hides the dashboard, it does not quit Searoom.
+        controller.dashboardView.onEscape = { [weak self] in
+            self?.popover?.performClose(nil)
+        }
 
         let popover = NSPopover()
         popover.behavior = .transient

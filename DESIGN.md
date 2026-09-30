@@ -219,7 +219,7 @@ Graphs use square or minimally rounded joins. The Searoom mark may use the app i
 
 ### Menu-bar status item
 
-Displays the selected metrics using Departure Mono and compact fixed value columns, or the mark alone when nothing is selected. It supports left-click to toggle the popover, right-click for its context menu, and the same toggle through the configurable global shortcut. Never imply that unavailable sensor data is zero.
+Displays the selected metrics using Departure Mono and compact fixed value columns, or the mark alone when nothing is selected. It supports left-click to toggle the popover, right-click for its context menu, and the same toggle through the configurable global shortcut. Escape closes an open popover, the keyboard's version of the click outside that already dismisses it, and only once there is nothing left for Escape to cancel inside the dashboard. Never imply that unavailable sensor data is zero.
 
 ### System-state header
 

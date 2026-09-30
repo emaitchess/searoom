@@ -65,7 +65,8 @@ Searoom's own CPU, RAM and sample cadence appear in one compact final telemetry
 line immediately above that footer. The dashboard scrolls vertically without
 visible scrollbars and suppresses horizontal movement entirely. Clicking a
 byte, temperature, or throughput metric rotates its display units; paired
-network, disk, and swap-throughput readings rotate together.
+network, disk, and swap-throughput readings rotate together. Escape closes the
+dashboard, which leaves Searoom running in the menu bar rather than quitting it.
 
 ## Design
 
