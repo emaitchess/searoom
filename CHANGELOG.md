@@ -4,6 +4,23 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-09-30
+
+### Fixed
+
+- A Mac with no usable network route no longer reads as zero network
+  throughput. A route watch marks network I/O offline, the dashboard card
+  keeps its trend beneath a paper scrim reading NO INTERNET CONNECTION,
+  hover scrubbing and its tooltip stop while the overlay shows, and
+  VoiceOver says offline. CLI documents encode the reading as explicit
+  null with the offline availability reason, an additive change inside
+  telemetry v1, and the bundled schema and metric catalog follow.
+- Escape closes the dashboard, the keyboard's version of the click outside
+  that already dismissed it. It hides the dashboard and leaves Searoom in
+  the menu bar rather than quitting it, and it stays last in the cancel
+  cascade so Escape still abandons a card drag and releases a selected
+  process row first.
+
 ## [0.8.1] - 2026-09-15
 
 ### Added
