@@ -4,6 +4,38 @@ All notable changes to Searoom are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-11-25
+
+### Added
+
+- `sample`, `watch` and `status` report use of each logical CPU with its kind,
+  in `cpu.cores`. The kind is the kernel's own performance-level name, so an M4
+  reports efficiency and performance cores and an M5 Pro reports performance and
+  super cores, and it is null when the mapping cannot be confirmed.
+- Whole-Mac power draw in watts, in `power.systemWatts`, from the SMC's `PSTR`
+  key where the Mac publishes one.
+- GPU temperature in `thermal.gpuTemperatureCelsius`, the mean of the SMC's GPU
+  sensors. It is null while a Mac has its idle GPU powered down.
+- Each fan's minimum and maximum speed, in `minimumRpm` and `maximumRpm`.
+
+  These are additive optional fields within telemetry v1, with an availability
+  reason beside each. They are best-effort, read without root, and read only by
+  the CLI: the menu-bar app does not pay for them, history never stores them,
+  and the 41-field `--dump-sample` shape is unchanged. Sensors were checked on
+  an M5 Pro and, by probe, on an M4; a Mac without a source reports null.
+
+### Fixed
+
+- GPU utilization no longer reads a 1% GPU as 100%. The registry publishes whole
+  percentages, and the scale was guessed from the number itself, so a raw 1 was
+  taken for a fraction. That also drove GPU pressure and overall pressure to
+  critical on an idle Mac, in the menu bar, the dashboard and the CLI.
+
+### Changed
+
+- The GPU key `GPU Core Utilization` is no longer read. It names no unit, so its
+  scale cannot be established, and the M5 Pro checked does not publish it.
+
 ## [0.8.2] - 2026-09-30
 
 ### Fixed
