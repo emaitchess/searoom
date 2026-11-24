@@ -64,6 +64,16 @@ enum SelfTest {
             "battery temperature scaling"
         )
         check(
+            [0, 1, 2, 50, 100].map {
+                GPUCollector.parseUtilization(["Device Utilization %": $0])
+            } == [0, 0.01, 0.02, 0.5, 1],
+            "GPU utilization reads whole percentages"
+        )
+        check(
+            GPUCollector.parseUtilization(["In use system memory": 1]) == nil,
+            "GPU utilization is unavailable without a percentage key"
+        )
+        check(
             GPUCollector.parseUsedSystemMemory(
                 ["In use system memory": 631_635_968],
                 physicalMemory: 48 * 1_073_741_824

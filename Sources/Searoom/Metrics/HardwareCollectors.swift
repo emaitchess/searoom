@@ -56,12 +56,14 @@ struct GPUReading {
 }
 
 final class GPUCollector {
-    private let utilizationKeys = [
+    // Every key here publishes a whole percentage. "GPU Core Utilization" was
+    // once listed too, but it names no unit, so its scale cannot be
+    // established, and the M5 Pro checked does not publish it.
+    private static let utilizationKeys = [
         "Device Utilization %",
         "Renderer Utilization %",
         "GPU Activity(%)",
         "GPU Activity %",
-        "GPU Core Utilization",
         "GPU Utilization %"
     ]
     private var services: [io_registry_entry_t] = []
@@ -105,11 +107,8 @@ final class GPUCollector {
                 named: "PerformanceStatistics",
                 service: service
             ) else { continue }
-            for key in utilizationKeys {
-                guard let number = statistics[key] as? NSNumber else { continue }
-                let raw = number.doubleValue
-                let value = raw > 1 ? raw / 100 : raw
-                maximumUsage = max(maximumUsage ?? value, value)
+            if let usage = Self.parseUtilization(statistics) {
+                maximumUsage = max(maximumUsage ?? usage, usage)
             }
             if let used = Self.parseUsedSystemMemory(
                 statistics,
@@ -119,7 +118,7 @@ final class GPUCollector {
             }
         }
 
-        guard let usage = maximumUsage.map({ min(1, max(0, $0)) }) else {
+        guard let usage = maximumUsage else {
             releaseServices()
             nextDiscovery = clock.now.advanced(by: .seconds(60))
             return GPUReading(
@@ -146,6 +145,17 @@ final class GPUCollector {
             memoryPressure: memoryPressure,
             availability: .available
         )
+    }
+
+    // The registry publishes whole percentages, so 1 means one percent. Guessing
+    // the scale from the magnitude, as this once did, read a 1% GPU as 100% and
+    // drove GPU and overall pressure to critical on an idle Mac.
+    static func parseUtilization(_ statistics: [String: Any]) -> Double? {
+        utilizationKeys
+            .compactMap { (statistics[$0] as? NSNumber)?.doubleValue }
+            .filter(\.isFinite)
+            .max()
+            .map { min(1, max(0, $0 / 100)) }
     }
 
     // "In use system memory" is a read-only, undocumented IORegistry value that
