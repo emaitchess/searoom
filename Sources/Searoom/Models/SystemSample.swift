@@ -53,8 +53,36 @@ enum PressureLevel: Int, Codable, CaseIterable, Comparable, Sendable {
 }
 
 struct FanSample: Codable, Equatable, Sendable {
+    /// The range the SMC says this fan runs in while spinning. A fan may also
+    /// stop, so `rpm` can sit below `minimumRPM`.
+    struct Limits: Equatable, Sendable {
+        let minimumRPM: Double
+        let maximumRPM: Double
+    }
+
     let name: String
     let rpm: Double
+    /// Constant per fan, so history does not store it with every sample: the
+    /// coding keys leave it out and archived fans decode with nil.
+    let limits: Limits?
+
+    init(name: String, rpm: Double, limits: Limits? = nil) {
+        self.name = name
+        self.rpm = rpm
+        self.limits = limits
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decode(String.self, forKey: .name)
+        rpm = try values.decode(Double.self, forKey: .rpm)
+        limits = nil
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case rpm
+    }
 }
 
 enum TemperatureSource: String, Codable, Equatable, Sendable {

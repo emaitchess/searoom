@@ -182,6 +182,145 @@ final class TelemetryOutputTests: XCTestCase {
         XCTAssertNil(try jsonDictionary(encoded)["topProcesses"])
     }
 
+    private let measuredLive = LiveReadings(
+        cores: [
+            CoreReading(index: 0, kind: "efficiency", usage: 0.25),
+            CoreReading(index: 1, kind: nil, usage: nil)
+        ],
+        coresAvailability: .available,
+        systemWatts: 8.5,
+        gpuTemperatureCelsius: 38
+    )
+
+    private func sampleWithFan(_ limits: FanSample.Limits?) -> SystemSample {
+        SystemSample.placeholder.replacingFans([FanSample(name: "FAN 1", rpm: 1_000, limits: limits)])
+    }
+
+    private func section(_ name: String, of sample: TelemetrySampleV1) throws -> [String: Any] {
+        let object = try jsonDictionary(TelemetryOutputV1.encode(sample, pretty: false))
+        return try XCTUnwrap(object[name] as? [String: Any])
+    }
+
+    func testLiveReadingsAppearOnLiveSamples() throws {
+        let sample = TelemetrySampleV1.make(
+            from: sampleWithFan(FanSample.Limits(minimumRPM: 1_000, maximumRPM: 4_900)),
+            observerKind: "searoom-cli",
+            live: measuredLive
+        )
+        let power = try section("power", of: sample)
+        XCTAssertEqual(power["systemWatts"] as? Double, 8.5)
+        XCTAssertEqual(power["systemWattsAvailability"] as? String, "available")
+
+        let cpu = try section("cpu", of: sample)
+        XCTAssertEqual(cpu["coresAvailability"] as? String, "available")
+        let cores = try XCTUnwrap(cpu["cores"] as? [[String: Any]])
+        XCTAssertEqual(cores[0]["index"] as? Int, 0)
+        XCTAssertEqual(cores[0]["kind"] as? String, "efficiency")
+        XCTAssertEqual(cores[0]["usageFraction"] as? Double, 0.25)
+        XCTAssertTrue(cores[1]["kind"] is NSNull)
+        XCTAssertTrue(cores[1]["usageFraction"] is NSNull)
+
+        let thermal = try section("thermal", of: sample)
+        XCTAssertEqual(thermal["gpuTemperatureCelsius"] as? Double, 38)
+        XCTAssertEqual(thermal["gpuTemperatureAvailability"] as? String, "available")
+        let fan = try XCTUnwrap((thermal["fans"] as? [[String: Any]])?.first)
+        XCTAssertEqual(fan["rpm"] as? Double, 1_000)
+        XCTAssertEqual(fan["minimumRpm"] as? Double, 1_000)
+        XCTAssertEqual(fan["maximumRpm"] as? Double, 4_900)
+        XCTAssertEqual(fan["limitsAvailability"] as? String, "available")
+    }
+
+    func testUnavailableLiveReadingsEncodeAsExplicitNull() throws {
+        let sample = TelemetrySampleV1.make(
+            from: sampleWithFan(nil),
+            observerKind: "searoom-cli",
+            live: .unavailable
+        )
+        let power = try section("power", of: sample)
+        XCTAssertTrue(power["systemWatts"] is NSNull)
+        XCTAssertEqual(power["systemWattsAvailability"] as? String, "unavailable")
+        let cpu = try section("cpu", of: sample)
+        XCTAssertEqual((cpu["cores"] as? [Any])?.count, 0)
+        XCTAssertEqual(cpu["coresAvailability"] as? String, "unavailable")
+        let thermal = try section("thermal", of: sample)
+        XCTAssertTrue(thermal["gpuTemperatureCelsius"] is NSNull)
+        XCTAssertEqual(thermal["gpuTemperatureAvailability"] as? String, "unavailable")
+        let fan = try XCTUnwrap((thermal["fans"] as? [[String: Any]])?.first)
+        XCTAssertTrue(fan["minimumRpm"] is NSNull)
+        XCTAssertTrue(fan["maximumRpm"] is NSNull)
+        XCTAssertEqual(fan["limitsAvailability"] as? String, "unavailable")
+    }
+
+    /// History never stored these readings, so its documents must not grow the
+    /// keys, the same guarantee the process ranking makes.
+    func testPersistedSamplesOmitEveryLiveReadingKey() throws {
+        let sample = TelemetrySampleV1.make(
+            from: sampleWithFan(FanSample.Limits(minimumRPM: 1_000, maximumRPM: 4_900)),
+            observerKind: "searoom-app"
+        )
+        for (name, keys) in [
+            ("cpu", ["cores", "coresAvailability"]),
+            ("power", ["systemWatts", "systemWattsAvailability"]),
+            ("thermal", [
+                "gpuTemperatureCelsius", "gpuTemperatureAvailability"
+            ])
+        ] {
+            let object = try section(name, of: sample)
+            for key in keys { XCTAssertNil(object[key], "\(name).\(key)") }
+        }
+        let fan = try XCTUnwrap((section("thermal", of: sample)["fans"] as? [[String: Any]])?.first)
+        XCTAssertEqual(Set(fan.keys), ["name", "rpm"])
+    }
+
+    func testLiveSampleDocumentsValidateAgainstBundledSchema() throws {
+        for live in [measuredLive, LiveReadings.unavailable] {
+            let document = SampleDocumentV1(
+                sample: .make(
+                    from: sampleWithFan(FanSample.Limits(minimumRPM: 1_000, maximumRPM: 4_900)),
+                    observerKind: "searoom-cli",
+                    live: live
+                ),
+                intervalSeconds: 2,
+                generatedAt: Date(timeIntervalSinceReferenceDate: 0),
+                version: .current()
+            )
+            let object = try jsonDictionary(TelemetryOutputV1.encode(document, pretty: false))
+            let errors = validate(object, against: schema, definitions: try definitions())
+            XCTAssertTrue(errors.isEmpty, "schema violations: \(errors.prefix(12))")
+        }
+    }
+
+    /// The validator ignores properties the schema does not name, so a
+    /// misspelled definition would pass it. Pin the names themselves.
+    func testBundledSchemaDeclaresEveryLiveReadingAndRequiresNone() throws {
+        let definitions = try definitions()
+        let sample = try XCTUnwrap(
+            (definitions["sample"] as? [String: Any])?["properties"] as? [String: [String: Any]]
+        )
+        for (name, keys) in [
+            ("cpu", ["cores", "coresAvailability"]),
+            ("power", ["systemWatts", "systemWattsAvailability"]),
+            ("thermal", [
+                "gpuTemperatureCelsius", "gpuTemperatureAvailability"
+            ])
+        ] {
+            let properties = try XCTUnwrap(sample[name]?["properties"] as? [String: Any])
+            let required = try XCTUnwrap(sample[name]?["required"] as? [String])
+            for key in keys {
+                XCTAssertNotNil(properties[key], "\(name).\(key)")
+                XCTAssertFalse(required.contains(key), "\(name).\(key) must stay optional")
+            }
+        }
+        let fan = try XCTUnwrap(definitions["fan"] as? [String: Any])
+        let fanProperties = try XCTUnwrap(fan["properties"] as? [String: Any])
+        for key in ["minimumRpm", "maximumRpm", "limitsAvailability"] {
+            XCTAssertNotNil(fanProperties[key], key)
+        }
+        XCTAssertEqual(fan["required"] as? [String], ["name", "rpm"])
+        let core = try XCTUnwrap(definitions["core"] as? [String: Any])
+        XCTAssertEqual(core["required"] as? [String], ["index"])
+    }
+
     func testNonFiniteValuesCannotProduceInvalidJSON() throws {
         var sample = SystemSample.placeholder
         let data = try PropertyListEncoder().encode(sample)
@@ -506,5 +645,57 @@ final class TelemetryOutputTests: XCTestCase {
         let markdown = CLIRunner.markdown(definition)
         XCTAssertTrue(markdown.contains("### \(definition.id)"))
         XCTAssertTrue(markdown.contains(definition.unit))
+    }
+}
+
+private extension SystemSample {
+    /// Fan limits are not Codable, so the JSON round trip the other fixtures
+    /// edit samples with cannot carry them.
+    func replacingFans(_ fans: [FanSample]) -> SystemSample {
+        SystemSample(
+            timestamp: timestamp,
+            cpuUsage: cpuUsage,
+            cpuPressure: cpuPressure,
+            cpuPressureLevel: cpuPressureLevel,
+            loadAverage1m: loadAverage1m,
+            logicalCPUCount: logicalCPUCount,
+            memoryTotal: memoryTotal,
+            memoryUsed: memoryUsed,
+            memoryAvailable: memoryAvailable,
+            memoryCached: memoryCached,
+            swapUsed: swapUsed,
+            swapInPerSecond: swapInPerSecond,
+            swapOutPerSecond: swapOutPerSecond,
+            compressedMemoryBytes: compressedMemoryBytes,
+            compressionBytesPerSecond: compressionBytesPerSecond,
+            decompressionBytesPerSecond: decompressionBytesPerSecond,
+            memoryPressure: memoryPressure,
+            memoryPressureLevel: memoryPressureLevel,
+            memorySystemPressureLevel: memorySystemPressureLevel,
+            temperatureCelsius: temperatureCelsius,
+            temperatureSource: temperatureSource,
+            thermalPressureLevel: thermalPressureLevel,
+            gpuUsage: gpuUsage,
+            gpuPressure: gpuPressure,
+            gpuPressureLevel: gpuPressureLevel,
+            gpuMemoryUsedBytes: gpuMemoryUsedBytes,
+            gpuMemoryRecommendedBytes: gpuMemoryRecommendedBytes,
+            gpuMemoryPressure: gpuMemoryPressure,
+            fans: fans,
+            networkDownloadPerSecond: networkDownloadPerSecond,
+            networkUploadPerSecond: networkUploadPerSecond,
+            diskReadPerSecond: diskReadPerSecond,
+            diskWritePerSecond: diskWritePerSecond,
+            diskCapacityBytes: diskCapacityBytes,
+            diskAvailableBytes: diskAvailableBytes,
+            uptime: uptime,
+            processCPUUsage: processCPUUsage,
+            processMemoryBytes: processMemoryBytes,
+            processCount: processCount,
+            batteryPercent: batteryPercent,
+            isOnExternalPower: isOnExternalPower,
+            isLowPowerModeEnabled: isLowPowerModeEnabled,
+            availability: availability
+        )
     }
 }

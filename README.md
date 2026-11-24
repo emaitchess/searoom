@@ -31,6 +31,7 @@ unavailable.
 - Disk read/write throughput and remaining capacity
 - How long the current overall pressure level has been held
 - Top five processes by CPU and by resident memory, always shown on the dashboard, with selectable rows you can copy
+- In the CLI's live documents: use of each core with its kind, whole-Mac power draw, GPU temperature and fan limits, each best-effort where it comes from the SMC
 - Uptime, process count, battery level, power source and Low Power Mode
 - Searoom's own CPU and resident-memory usage
 - Bounded dithered trend graphs for load-bearing metrics
@@ -151,6 +152,11 @@ explicit `null` with an availability reason (`unavailable`, `warmingUp`,
 idle reading from missing hardware. Exit codes follow BSD `sysexits.h`: 0
 success, 64 usage, 65 bad local data, 70 internal error, 74 I/O, 130/143 for
 interrupted `watch`.
+
+If a command prints nothing and does not return right after installing, macOS
+may be waiting on its first-launch prompt, which appears on the Mac's screen and
+leaves no message in the terminal. Open Searoom once on the Mac and answer the
+prompt, then run the command again.
 
 `searoom metrics`, `searoom schema`, and `searoom agent-guide` are bundled, so
 an agent can discover the full contract offline. `searoom status` adds
@@ -276,6 +282,19 @@ samples without changing preferences, shortcuts or launch-at-login state.
 - **CPU pressure** is not macOS PSI. It is a documented saturation signal: the
   greater of CPU utilization and one-minute load average normalized by active
   logical CPUs.
+- **Per-core use, system power, GPU temperature and fan limits** are read only by
+  the CLI's `sample`, `watch` and `status`, beside the stored sample, so the
+  menu-bar app does not pay for them and history never holds them. Core use is a
+  delta of Mach processor ticks. A core's kind is the kernel's own
+  performance-level name matched against the device tree, and it is `null` when
+  the two disagree; it is not a fixed pair, because an M5 Pro has Super and
+  Performance cores and no Efficiency cores. System power is the undocumented SMC
+  key `PSTR`. GPU temperature is the mean of the undocumented SMC GPU sensors that
+  read between 10 and 125 °C, so a Mac that powers its idle GPU down reports
+  `null` then. An M4 publishes each GPU sensor twice, 5.3 °C apart, so follow its
+  trend rather than its absolute value. These were checked on an M5 Pro MacBook Pro
+  (macOS 27.3) and, by probe, an M4 Mac mini (macOS 27.2.1), and on no other
+  model.
 - **GPU pressure** is derived, not an Apple pressure API: the greater of
   best-effort GPU utilization and the ratio of in-use GPU system memory to the
   Metal-recommended working-set size. In-use memory is a read-only IORegistry
@@ -301,6 +320,9 @@ samples without changing preferences, shortcuts or launch-at-login state.
 - **Temperature, fan and GPU sensors** use read-only, best-effort SMC/IORegistry
   access. Availability and key names vary by Mac and macOS release. No privileged
   helper or subprocess fallback is used.
+- **Temperature** from the SMC is one sensor, the first in a fixed list that
+  answers when Searoom starts, not an average: `Tp01` on an M4 and `Tp04` on an
+  M5 Pro.
 - **Temperature source** is CPU/package SMC data when a supported key exists;
   otherwise Searoom shows the AppleSmartBattery pack sensor and labels it `BAT`.
   AppleSmartBattery registry values expressed in hundredths of a degree Celsius

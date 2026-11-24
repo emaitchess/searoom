@@ -30,10 +30,19 @@ final class ThermalCollector {
         @unknown default: .unavailable
         }
 
-        var fanSpeeds = [Double](repeating: 0, count: 10)
-        let fanCount = Int(SRReadFanSpeeds(&fanSpeeds, Int32(fanSpeeds.count)))
-        let fans = fanSpeeds.prefix(fanCount).enumerated().map {
-            FanSample(name: "FAN \($0.offset + 1)", rpm: $0.element)
+        var fanReadings = [SRFanReading](repeating: SRFanReading(), count: 10)
+        let fanCount = Int(SRReadFans(&fanReadings, Int32(fanReadings.count)))
+        let fans = fanReadings.prefix(fanCount).enumerated().map { position, reading in
+            FanSample(
+                name: "FAN \(position + 1)",
+                rpm: reading.speed_rpm,
+                limits: reading.has_limits
+                    ? FanSample.Limits(
+                        minimumRPM: reading.minimum_rpm,
+                        maximumRPM: reading.maximum_rpm
+                    )
+                    : nil
+            )
         }
         return ThermalReading(
             temperature: measuredTemperature,

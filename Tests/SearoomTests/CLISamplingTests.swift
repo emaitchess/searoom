@@ -12,9 +12,17 @@ final class CLISamplingTests: XCTestCase {
         private var samples: [SystemSample]
         private var rankings: [ProcessRanking]
 
-        init(samples: [SystemSample] = [], rankings: [ProcessRanking] = []) {
+        private var liveReadingCount = 0
+        private let live: LiveReadings
+
+        init(
+            samples: [SystemSample] = [],
+            rankings: [ProcessRanking] = [],
+            live: LiveReadings = .unavailable
+        ) {
             self.samples = samples
             self.rankings = rankings
+            self.live = live
         }
 
         func collect(forceDiskCounterRefresh: Bool) -> SystemSample {
@@ -35,6 +43,19 @@ final class CLISamplingTests: XCTestCase {
                 return ProcessRanking.empty
             }
             return rankings.removeFirst()
+        }
+
+        func collectLiveReadings() -> LiveReadings {
+            lock.lock()
+            defer { lock.unlock() }
+            liveReadingCount += 1
+            return live
+        }
+
+        var recordedLiveReadings: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return liveReadingCount
         }
 
         var recordedRequests: [Bool] {
@@ -242,7 +263,42 @@ final class CLISamplingTests: XCTestCase {
         _ = CLIRunner.collectPrimedSample(collector: collector, intervalSeconds: 7, waiter: waiter)
         XCTAssertEqual(collector.recordedRequests, [false, true])
         XCTAssertEqual(collector.recordedRankingIntervals, [7])
+        XCTAssertEqual(collector.recordedLiveReadings, 1)
         XCTAssertEqual(waiter.recordedWaits, [7])
+    }
+
+    func testLiveDocumentsCarryTheLiveReadingsAcrossThePrimedInterval() throws {
+        let live = LiveReadings(
+            cores: [CoreReading(index: 0, kind: "efficiency", usage: 0.25)],
+            coresAvailability: .available,
+            systemWatts: 8.5,
+            gpuTemperatureCelsius: nil
+        )
+        for (command, reads) in [
+            (CLICommandKind.sample(interval: 2), 2),
+            (.watch(interval: 2, count: 2), 3),
+            (.status(interval: 2), 2)
+        ] {
+            let collector = SpyCollector(live: live)
+            let stdout = CapturingStdout()
+            let environment = makeEnvironment(
+                collector: collector,
+                waiter: FakeWaiter(),
+                signals: ScriptedSignals([]),
+                stdout: stdout
+            )
+            XCTAssertEqual(CLIRunner.run(command, json: false, pretty: false, environment: environment), 0)
+            // One priming read, then one for each emitted document.
+            XCTAssertEqual(collector.recordedLiveReadings, reads)
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(stdout.lines[0].utf8)) as? [String: Any]
+            )
+            let sample = try XCTUnwrap(object["sample"] as? [String: Any])
+            let power = try XCTUnwrap(sample["power"] as? [String: Any])
+            XCTAssertEqual(power["systemWatts"] as? Double, 8.5)
+            let cpu = try XCTUnwrap(sample["cpu"] as? [String: Any])
+            XCTAssertEqual((cpu["cores"] as? [[String: Any]])?.first?["kind"] as? String, "efficiency")
+        }
     }
 
     private func populatedRanking() -> ProcessRanking {

@@ -74,6 +74,24 @@ enum SelfTest {
             "GPU utilization is unavailable without a percentage key"
         )
         check(
+            CoreCollector.usage(
+                from: CoreCollector.Ticks(user: 4_294_967_290, system: 0, nice: 0, idle: 0),
+                to: CoreCollector.Ticks(user: 4, system: 0, nice: 0, idle: 30)
+            ) == 0.25,
+            "per-core ticks wrap"
+        )
+        check(
+            CoreCollector.kinds(
+                levels: [
+                    CoreCollector.PerformanceLevel(name: "super", coreCount: 1),
+                    CoreCollector.PerformanceLevel(name: "performance", coreCount: 2)
+                ],
+                clusterTypes: [0: "M", 1: "M", 2: "P"],
+                coreCount: 3
+            ) == ["performance", "performance", "super"],
+            "core kinds follow the kernel's level names"
+        )
+        check(
             GPUCollector.parseUsedSystemMemory(
                 ["In use system memory": 631_635_968],
                 physicalMemory: 48 * 1_073_741_824
@@ -296,6 +314,17 @@ enum SelfTest {
             "disk capacity and availability agree"
         )
         check((0...1).contains(sample.cpuUsage), "bounded CPU")
+        _ = collector.collectLiveReadings()
+        let live = collector.collectLiveReadings()
+        check(
+            live.cores.allSatisfy { $0.usage.map { (0...1).contains($0) } ?? true },
+            "bounded per-core usage"
+        )
+        check(live.systemWatts.map { $0 > 0 && $0 <= 2_000 } ?? true, "bounded system power")
+        check(
+            live.gpuTemperatureCelsius.map { (10...125).contains($0) } ?? true,
+            "bounded GPU temperature"
+        )
         check(sample.processMemoryBytes > 0, "self memory")
 
         if failures.isEmpty {

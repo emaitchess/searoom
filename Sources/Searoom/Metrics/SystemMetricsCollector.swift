@@ -11,6 +11,8 @@ final class SystemMetricsCollector {
     private let battery = BatteryCollector()
     private let process = ProcessCollector()
     private let topProcesses = TopProcessCollector()
+    // Lazy because only the CLI reads it: the app must not pay for it.
+    private lazy var liveReadings = LiveReadingsCollector()
     private let clock = ContinuousClock()
     private var nextDiskReading: ContinuousClock.Instant?
     private var nextDiskCapacityReading: ContinuousClock.Instant?
@@ -153,6 +155,13 @@ final class SystemMetricsCollector {
     /// are queue-confined state.
     func collectProcessRanking(interval: TimeInterval) -> ProcessRanking {
         topProcesses.read(interval: interval)
+    }
+
+    /// Readings only live CLI documents carry. Per-core usage is a delta, so
+    /// this holds queue-confined baselines like the rest of the collector; the
+    /// menu-bar app never calls it.
+    func collectLiveReadings() -> LiveReadings {
+        liveReadings.read()
     }
 }
 

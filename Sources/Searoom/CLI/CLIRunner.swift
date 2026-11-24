@@ -10,6 +10,7 @@ enum CLIRunner {
     protocol Sampling: AnyObject {
         func collect(forceDiskCounterRefresh: Bool) -> SystemSample
         func collectProcessRanking(interval: TimeInterval) -> ProcessRanking
+        func collectLiveReadings() -> LiveReadings
     }
 
     protocol Stdout: Sendable {
@@ -321,8 +322,8 @@ enum CLIRunner {
 
     // MARK: - Live sampling
 
-    /// One priming sample installs every rate baseline — CPU, disk, and the
-    /// process ranking alike — then one requested interval of monotonic time
+    /// One priming sample installs every rate baseline — CPU, per-core, disk,
+    /// and the process ranking alike — then one requested interval of monotonic time
     /// passes, then a forced second disk-counter read completes the disk
     /// baseline so the emitted sample carries meaningful disk I/O and real
     /// per-process CPU rates across the same window.
@@ -333,6 +334,7 @@ enum CLIRunner {
     ) -> SystemSample {
         _ = collector.collect(forceDiskCounterRefresh: false)
         _ = collector.collectProcessRanking(interval: Double(intervalSeconds))
+        _ = collector.collectLiveReadings()
         waiter.wait(seconds: Double(intervalSeconds))
         return collector.collect(forceDiskCounterRefresh: true)
     }
@@ -354,7 +356,12 @@ enum CLIRunner {
         )
         let ranking = TopProcessesV1.make(from: environment.collector.collectProcessRanking(interval: Double(seconds)))
         let document = SampleDocumentV1(
-            sample: .make(from: raw, observerKind: "searoom-cli", topProcesses: ranking),
+            sample: .make(
+                from: raw,
+                observerKind: "searoom-cli",
+                topProcesses: ranking,
+                live: environment.collector.collectLiveReadings()
+            ),
             intervalSeconds: seconds,
             generatedAt: environment.now(),
             version: environment.version
@@ -375,6 +382,7 @@ enum CLIRunner {
         // The ranking primes with the sample, so the first emitted line
         // already carries per-process CPU rates across the first interval.
         _ = environment.collector.collectProcessRanking(interval: Double(seconds))
+        _ = environment.collector.collectLiveReadings()
         var deadline = clock.now
         var emitted = 0
 
@@ -396,7 +404,12 @@ enum CLIRunner {
             let raw = environment.collector.collect(forceDiskCounterRefresh: emitted == 0)
             let ranking = TopProcessesV1.make(from: environment.collector.collectProcessRanking(interval: Double(seconds)))
             let document = SampleDocumentV1(
-                sample: .make(from: raw, observerKind: "searoom-cli", topProcesses: ranking),
+                sample: .make(
+                    from: raw,
+                    observerKind: "searoom-cli",
+                    topProcesses: ranking,
+                    live: environment.collector.collectLiveReadings()
+                ),
                 intervalSeconds: seconds,
                 generatedAt: environment.now(),
                 version: environment.version
@@ -431,7 +444,12 @@ enum CLIRunner {
         let ranking = TopProcessesV1.make(from: environment.collector.collectProcessRanking(interval: Double(seconds)))
 
         let document = StatusDocumentV1(
-            sample: .make(from: raw, observerKind: "searoom-cli", topProcesses: ranking),
+            sample: .make(
+                from: raw,
+                observerKind: "searoom-cli",
+                topProcesses: ranking,
+                live: environment.collector.collectLiveReadings()
+            ),
             raw: raw,
             limiting: Self.makeLimiting(raw),
             derived: derived,
@@ -612,6 +630,7 @@ enum CLIRunner {
             waiter: environment.waiter
         )
         let availability = raw.availability
+        let live = environment.collector.collectLiveReadings()
         let groups: [CapabilityV1] = [
             CapabilityV1(
                 group: "cpu",
@@ -619,6 +638,13 @@ enum CLIRunner {
                 source: "host_statistics CPU ticks and getloadavg",
                 refreshCadenceSeconds: seconds,
                 notes: "pressure is derived, not macOS PSI"
+            ),
+            CapabilityV1(
+                group: "cpuCores",
+                availability: live.coresAvailability.rawValue,
+                source: "host_processor_info ticks; kind from hw.perflevel and the device tree",
+                refreshCadenceSeconds: seconds,
+                notes: "live documents only; kind is null when the two kind sources disagree"
             ),
             CapabilityV1(
                 group: "memory",
@@ -635,11 +661,18 @@ enum CLIRunner {
                 notes: "source is labelled per reading; many Macs expose neither sensor"
             ),
             CapabilityV1(
+                group: "gpuTemperature",
+                availability: live.gpuTemperatureAvailability.rawValue,
+                source: "AppleSMC Tg sensors, averaged",
+                refreshCadenceSeconds: 6,
+                notes: "live documents only; unavailable while a Mac powers its idle GPU down"
+            ),
+            CapabilityV1(
                 group: "fans",
                 availability: availability.fans.rawValue,
-                source: "AppleSMC fan speeds",
+                source: "AppleSMC fan speeds and limits",
                 refreshCadenceSeconds: 6,
-                notes: "names are positional labels (FAN 1, FAN 2), not SMC names"
+                notes: "names are positional labels (FAN 1, FAN 2), not SMC names; limits are live documents only"
             ),
             CapabilityV1(
                 group: "gpu",
@@ -675,6 +708,13 @@ enum CLIRunner {
                 source: "IOPowerSources and AppleSmartBattery",
                 refreshCadenceSeconds: 30,
                 notes: "unavailable on desktop Macs"
+            ),
+            CapabilityV1(
+                group: "systemPower",
+                availability: live.systemWattsAvailability.rawValue,
+                source: "AppleSMC PSTR whole-Mac power",
+                refreshCadenceSeconds: seconds,
+                notes: "live documents only; an undocumented key, so availability varies by Mac model"
             ),
             CapabilityV1(
                 group: "processCount",

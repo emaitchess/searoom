@@ -98,6 +98,10 @@ struct TopProcessesV1: Encodable, Equatable {
     }
 }
 
+/// Additive fields inside existing sections (`cpu.cores`, `thermal.gpu...`,
+/// `power.systemWatts`, fan limits) exist only on live documents. Their
+/// availability is nil on a persisted sample, and then the keys are omitted,
+/// because history never stored a reading to be null about.
 struct TelemetrySampleV1: Encodable, Equatable {
     let timestamp: Date
     let uptimeSeconds: Double
@@ -121,6 +125,14 @@ struct TelemetrySampleV1: Encodable, Equatable {
         let loadAverage1m: Double?
         let logicalCPUCount: Int
         let availability: String
+        let cores: [Core]
+        let coresAvailability: String?
+    }
+
+    struct Core: Encodable, Equatable {
+        let index: Int
+        let kind: String?
+        let usageFraction: Double?
     }
 
     struct Memory: Encodable, Equatable {
@@ -147,6 +159,9 @@ struct TelemetrySampleV1: Encodable, Equatable {
     struct Fan: Encodable, Equatable {
         let name: String
         let rpm: Double
+        let minimumRpm: Double?
+        let maximumRpm: Double?
+        let limitsAvailability: String?
     }
 
     struct Thermal: Encodable, Equatable {
@@ -157,6 +172,8 @@ struct TelemetrySampleV1: Encodable, Equatable {
         let fans: [Fan]
         let temperatureAvailability: String
         let fansAvailability: String
+        let gpuTemperatureCelsius: Double?
+        let gpuTemperatureAvailability: String?
     }
 
     struct GPU: Encodable, Equatable {
@@ -194,6 +211,8 @@ struct TelemetrySampleV1: Encodable, Equatable {
         let externalPower: Bool?
         let lowPowerModeEnabled: Bool
         let availability: String
+        let systemWatts: Double?
+        let systemWattsAvailability: String?
     }
 
     struct System: Encodable, Equatable {
@@ -211,12 +230,13 @@ struct TelemetrySampleV1: Encodable, Equatable {
 
     /// Projects one stored sample into the public v1 shape. `observerKind`
     /// distinguishes live CLI sampling from values persisted by the app.
-    /// Persisted samples carry no process ranking, so `topProcesses` defaults
-    /// to nil and encodes without the key; live sampling passes one in.
+    /// Persisted samples carry no process ranking and no live readings, so both
+    /// default to nil and encode without their keys; live sampling passes them in.
     static func make(
         from sample: SystemSample,
         observerKind: String,
-        topProcesses: TopProcessesV1? = nil
+        topProcesses: TopProcessesV1? = nil,
+        live: LiveReadings? = nil
     ) -> TelemetrySampleV1 {
         let availability = sample.availability
 
@@ -249,7 +269,15 @@ struct TelemetrySampleV1: Encodable, Equatable {
                 pressureFormula: "max(cpuUsage, loadAverage1m/logicalCPUCount)",
                 loadAverage1m: sample.loadAverage1m >= 0 && sample.loadAverage1m.isFinite ? sample.loadAverage1m : nil,
                 logicalCPUCount: sample.logicalCPUCount,
-                availability: availability.cpuUsageLoad.rawValue
+                availability: availability.cpuUsageLoad.rawValue,
+                cores: (live?.cores ?? []).map {
+                    Core(
+                        index: $0.index,
+                        kind: $0.kind,
+                        usageFraction: $0.usage.flatMap(TelemetryOutputV1.finite)
+                    )
+                },
+                coresAvailability: live?.coresAvailability.rawValue
             ),
             memory: Memory(
                 totalBytes: sample.memoryTotal,
@@ -276,9 +304,21 @@ struct TelemetrySampleV1: Encodable, Equatable {
                 temperatureSource: sample.temperatureSource.rawValue,
                 systemPressureLevel: sample.thermalPressureLevel.outputLabel,
                 systemPressureSource: "ProcessInfo.thermalState",
-                fans: sample.fans.map { Fan(name: $0.name, rpm: $0.rpm) },
+                fans: sample.fans.map { fan in
+                    Fan(
+                        name: fan.name,
+                        rpm: fan.rpm,
+                        minimumRpm: live == nil ? nil : fan.limits?.minimumRPM,
+                        maximumRpm: live == nil ? nil : fan.limits?.maximumRPM,
+                        limitsAvailability: live.map { _ in
+                            (fan.limits == nil ? ReadingAvailability.unavailable : .available).rawValue
+                        }
+                    )
+                },
                 temperatureAvailability: availability.temperature.rawValue,
-                fansAvailability: availability.fans.rawValue
+                fansAvailability: availability.fans.rawValue,
+                gpuTemperatureCelsius: live?.gpuTemperatureCelsius.flatMap(TelemetryOutputV1.finite),
+                gpuTemperatureAvailability: live?.gpuTemperatureAvailability.rawValue
             ),
             gpu: GPU(
                 usageFraction: sample.gpuUsage.flatMap(TelemetryOutputV1.finite),
@@ -311,7 +351,9 @@ struct TelemetrySampleV1: Encodable, Equatable {
                 batteryFraction: sample.batteryPercent.flatMap(TelemetryOutputV1.finite),
                 externalPower: sample.isOnExternalPower,
                 lowPowerModeEnabled: sample.isLowPowerModeEnabled,
-                availability: availability.battery.rawValue
+                availability: availability.battery.rawValue,
+                systemWatts: live?.systemWatts.flatMap(TelemetryOutputV1.finite),
+                systemWattsAvailability: live?.systemWattsAvailability.rawValue
             ),
             system: System(
                 overallPressureLevel: sample.overallPressureLevel.outputLabel,
@@ -887,6 +929,7 @@ extension TelemetrySampleV1.CPU {
     private enum Keys: String, CodingKey {
         case usageFraction, pressureFraction, pressureLevel, pressureKind
         case pressureFormula, loadAverage1m, logicalCPUCount, availability
+        case cores, coresAvailability
     }
 
     func encode(to encoder: Encoder) throws {
@@ -899,6 +942,40 @@ extension TelemetrySampleV1.CPU {
         try TelemetryNullEncoding.encode(loadAverage1m, .loadAverage1m, &container)
         try container.encode(logicalCPUCount, forKey: .logicalCPUCount)
         try container.encode(availability, forKey: .availability)
+        if let coresAvailability {
+            try container.encode(cores, forKey: .cores)
+            try container.encode(coresAvailability, forKey: .coresAvailability)
+        }
+    }
+}
+
+extension TelemetrySampleV1.Core {
+    private enum Keys: String, CodingKey {
+        case index, kind, usageFraction
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(index, forKey: .index)
+        try TelemetryNullEncoding.encode(kind, .kind, &container)
+        try TelemetryNullEncoding.encode(usageFraction, .usageFraction, &container)
+    }
+}
+
+extension TelemetrySampleV1.Fan {
+    private enum Keys: String, CodingKey {
+        case name, rpm, minimumRpm, maximumRpm, limitsAvailability
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(rpm, forKey: .rpm)
+        if let limitsAvailability {
+            try TelemetryNullEncoding.encode(minimumRpm, .minimumRpm, &container)
+            try TelemetryNullEncoding.encode(maximumRpm, .maximumRpm, &container)
+            try container.encode(limitsAvailability, forKey: .limitsAvailability)
+        }
     }
 }
 
@@ -939,6 +1016,7 @@ extension TelemetrySampleV1.Thermal {
     private enum Keys: String, CodingKey {
         case temperatureCelsius, temperatureSource, systemPressureLevel
         case systemPressureSource, fans, temperatureAvailability, fansAvailability
+        case gpuTemperatureCelsius, gpuTemperatureAvailability
     }
 
     func encode(to encoder: Encoder) throws {
@@ -950,6 +1028,10 @@ extension TelemetrySampleV1.Thermal {
         try container.encode(fans, forKey: .fans)
         try container.encode(temperatureAvailability, forKey: .temperatureAvailability)
         try container.encode(fansAvailability, forKey: .fansAvailability)
+        if let gpuTemperatureAvailability {
+            try TelemetryNullEncoding.encode(gpuTemperatureCelsius, .gpuTemperatureCelsius, &container)
+            try container.encode(gpuTemperatureAvailability, forKey: .gpuTemperatureAvailability)
+        }
     }
 }
 
@@ -1010,6 +1092,7 @@ extension TelemetrySampleV1.Disk {
 extension TelemetrySampleV1.Power {
     private enum Keys: String, CodingKey {
         case batteryFraction, externalPower, lowPowerModeEnabled, availability
+        case systemWatts, systemWattsAvailability
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1018,6 +1101,10 @@ extension TelemetrySampleV1.Power {
         try TelemetryNullEncoding.encode(externalPower, .externalPower, &container)
         try container.encode(lowPowerModeEnabled, forKey: .lowPowerModeEnabled)
         try container.encode(availability, forKey: .availability)
+        if let systemWattsAvailability {
+            try TelemetryNullEncoding.encode(systemWatts, .systemWatts, &container)
+            try container.encode(systemWattsAvailability, forKey: .systemWattsAvailability)
+        }
     }
 }
 
