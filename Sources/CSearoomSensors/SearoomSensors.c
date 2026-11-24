@@ -303,9 +303,10 @@ static bool is_plausible_power(double watts) {
 }
 
 // PSTR is the SMC's whole-system power rail, a `flt ` in watts. Apple does not
-// document it. Verified on Mac17,9 (M5 Pro, macOS 27.3), 5 to 11 W idle and 42
-// to 47 W with every core busy; and on Mac16,10 (M4, macOS 27.2.1), 1.3 W idle
-// and 13.8 W with ten busy cores, where it matched macmon's sys_power.
+// document it. Verified on Mac17,9 (M5 Pro, macOS 27.3), about 5 to 11 W idle
+// and 42 to 70 W over five runs with every core busy; and on Mac16,10 (M4, macOS
+// 27.2.1), 1.3 to 1.4 W idle and 13.8 to 17.3 W with ten busy cores, the lower
+// run matching macmon's sys_power.
 bool SRReadSystemPower(double *watts) {
     if (watts == NULL) return false;
     SMCValue value = {0};
